@@ -1,7 +1,7 @@
 # Perfect Bluetooth MIDI For Windows
 
 A tiny Windows app that lets **any** program on your PC — DAWs, Chrome sites
-using Web MIDI, MIDI-OX, [hardwaretester.com](https://hardwaretester.com/midi) —
+using Web MIDI, like [Midiano](https://app.midiano.com/) —
 talk to a **Bluetooth LE MIDI** device (Roland FP-90X, WIDI Master, CME,
 Yamaha MD-BT01, …) as if it were a normal wired MIDI device.
 
@@ -133,11 +133,10 @@ properly) from the tray icon's right-click menu.
 ## A great way to try it out
 
 [**Midiano**](https://app.midiano.com/) is a beautiful Chrome Web MIDI app
-with a huge searchable catalogue of songs that play themselves on your
+with a nice catalogue of songs that play themselves on your
 piano through the bridge. Open it, pick the opposite-side loopback
 endpoint (see the "DAW should use" hint in the app's card 1) as the MIDI
-output, and hit play on any song — your piano plays it. Perfect end-to-
-end test and honestly just fun.
+output, and hit play on any song — your piano plays it.
 
 ## Headless / CLI mode
 
