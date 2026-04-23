@@ -130,6 +130,15 @@ Closing the window exits the app. Click **Hide to tray** if you want the
 bridge to keep running in the background — bring the window back (or exit
 properly) from the tray icon's right-click menu.
 
+## A great way to try it out
+
+[**Midiano**](https://app.midiano.com/) is a beautiful Chrome Web MIDI app
+with a huge searchable catalogue of songs that play themselves on your
+piano through the bridge. Open it, pick the opposite-side loopback
+endpoint (see the "DAW should use" hint in the app's card 1) as the MIDI
+output, and hit play on any song — your piano plays it. Perfect end-to-
+end test and honestly just fun.
+
 ## Headless / CLI mode
 
 Any recognised CLI flag skips the GUI and runs headless. Useful for

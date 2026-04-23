@@ -98,6 +98,18 @@
                      Foreground="{DynamicResource TextMutedBrush}"
                      LineHeight="17"
                      Margin="0,6,0,0"/>
+
+          <!-- Recommended test site. Opens in the user's default browser via
+               the code-behind Click handler (no LinkLabel in Avalonia). -->
+          <Button x:Name="MidianoBtn"
+                  Content="Try it with Midiano — great song library…"
+                  HorizontalAlignment="Left"
+                  Background="Transparent"
+                  Foreground="{DynamicResource AccentBrush}"
+                  Padding="0"
+                  BorderThickness="0"
+                  Margin="0,8,0,0"
+                  ToolTip.Tip="Opens app.midiano.com in your browser. Pick the same loopback endpoint the DAW-side hint above tells you to."/>
         </StackPanel>
       </Border>
 

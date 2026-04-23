@@ -56,6 +56,7 @@ public partial class MainWindow : Window
     private Button    _detectChannelBtn = null!;
     private TextBlock _dawHint         = null!;
     private ComboBox  _themeCombo      = null!;
+    private Button    _midianoBtn      = null!;
 
     // Status-pill colours are looked up from the theme at render time — see
     // ThemeBrush(). This is what makes Light/Dark switching re-colour the
@@ -144,6 +145,7 @@ public partial class MainWindow : Window
         _detectChannelBtn = this.FindControl<Button>("DetectChannelBtn")!;
         _dawHint         = this.FindControl<TextBlock>("DawHint")!;
         _themeCombo      = this.FindControl<ComboBox>("ThemeCombo")!;
+        _midianoBtn      = this.FindControl<Button>("MidianoBtn")!;
     }
 
     // ===================================================================
@@ -317,6 +319,15 @@ public partial class MainWindow : Window
             {
                 Process.Start(new ProcessStartInfo(
                     "https://microsoft.github.io/MIDI/kb/how-to-create-loopback-endpoints-using-tools/")
+                    { UseShellExecute = true });
+            }
+            catch { }
+        };
+        _midianoBtn.Click += (_, _) =>
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://app.midiano.com/")
                     { UseShellExecute = true });
             }
             catch { }
