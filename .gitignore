@@ -1,0 +1,31 @@
+# Build output
+bin/
+obj/
+dist/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# VS Code — per-user overrides only
+.vscode/*.local.json
+
+# Claude Code — per-user session/permission state
+.claude/settings.local.json
+.claude/.sessions/
+
+# OS cruft
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Stray logs and temp files
+*.log
+PerfectBluetoothMidi-log-*.txt
+cli-*.txt

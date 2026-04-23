@@ -1,0 +1,192 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:PerfectBluetoothMidi"
+        x:Class="PerfectBluetoothMidi.MainWindow"
+        Title="Perfect Bluetooth MIDI"
+        Width="1040" Height="760"
+        MinWidth="820" MinHeight="540"
+        Background="{DynamicResource AppBgBrush}"
+        Icon="/app.ico"
+        WindowStartupLocation="CenterScreen">
+
+  <!--
+    Grid lets the activity log (row 3, "*") grow to fill whatever vertical
+    space remains. Rows 0-2 are Auto so they're exactly as tall as their
+    content.  This is the architectural fix that WinForms' TableLayoutPanel
+    kept failing at — Avalonia's layout pass is predictable and honours
+    star-sizing the way modern UI frameworks do.
+  -->
+  <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="20,14,20,14">
+
+    <!-- =================================================================
+         Row 0 — Header: title on the left, connection pill on the right.
+         ================================================================= -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,14">
+      <TextBlock Grid.Column="0"
+                 Classes="appTitle"
+                 Text="Perfect Bluetooth MIDI"
+                 VerticalAlignment="Center"/>
+
+      <StackPanel Grid.Column="1"
+                  Orientation="Horizontal"
+                  VerticalAlignment="Center"
+                  Spacing="8">
+        <!-- Theme selector — 3 options, System default. Sits at the left of
+             the status pill per the design. Items populated in code-behind. -->
+        <ComboBox x:Name="ThemeCombo"
+                  MinWidth="110"
+                  Margin="0,0,16,0"
+                  VerticalAlignment="Center"
+                  ToolTip.Tip="Switch between Light, Dark, and System-follow theme."/>
+        <Ellipse x:Name="StatusDot"
+                 Classes="statusDot"/>
+        <TextBlock x:Name="StatusText"
+                   Text="Disconnected"
+                   Foreground="{DynamicResource TextMutedBrush}"
+                   VerticalAlignment="Center"/>
+        <Button x:Name="HideToTrayBtn"
+                Content="Hide to tray"
+                Margin="16,0,0,0"
+                Padding="10,4"
+                ToolTip.Tip="Keep the bridge running in the background. Bring the window back from the system tray icon."/>
+      </StackPanel>
+    </Grid>
+
+    <!-- =================================================================
+         Row 1 — Setup strip: loopback card + BLE card side-by-side.
+         Two 50% columns with a 16 px gutter between them.
+         ================================================================= -->
+    <Grid Grid.Row="1"
+          ColumnDefinitions="*,16,*"
+          Margin="0,0,0,14">
+
+      <!-- Card 1: Loopback endpoint -->
+      <Border Grid.Column="0" Classes="card">
+        <StackPanel Spacing="0">
+          <TextBlock Classes="sectionHead" Text="1  MIDI loopback endpoint"/>
+          <TextBlock Classes="sectionSub"
+                     Text="Any DAW, Chrome Web MIDI, or MIDI-OX opens this as a virtual MIDI device."/>
+
+          <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
+            <ComboBox x:Name="PortCombo"
+                      Grid.Column="0"
+                      HorizontalAlignment="Stretch"
+                      MinHeight="32"/>
+            <Button x:Name="RefreshPortsBtn"
+                    Grid.Column="1"
+                    Margin="8,0,0,0"
+                    Content="Refresh"/>
+          </Grid>
+
+          <!-- Link rendered as a styled button (Avalonia has no LinkLabel).
+               Open browser in code-behind on click. -->
+          <Button x:Name="LoopbackHelpBtn"
+                  Content="How to create a loopback endpoint…"
+                  HorizontalAlignment="Left"
+                  Background="Transparent"
+                  Foreground="{DynamicResource AccentBrush}"
+                  Padding="0"
+                  BorderThickness="0"/>
+
+          <!-- Dynamic DAW-side hint: tells the user exactly which endpoint
+               name to open in their DAW / Web MIDI site, based on the A/B
+               side this app is using (UMP pair) or the single name (BLOOP).
+               Populated in MainWindow.axaml.cs → UpdateDawHint(). -->
+          <TextBlock x:Name="DawHint"
+                     TextWrapping="Wrap"
+                     FontSize="12"
+                     Foreground="{DynamicResource TextMutedBrush}"
+                     LineHeight="17"
+                     Margin="0,6,0,0"/>
+        </StackPanel>
+      </Border>
+
+      <!-- Card 2: BLE device -->
+      <Border Grid.Column="2" Classes="card">
+        <StackPanel Spacing="0">
+          <TextBlock Classes="sectionHead" Text="2  Bluetooth MIDI device"/>
+          <TextBlock Classes="sectionSub"
+                     Text="Turn BLE MIDI on at the device, then Scan. FP-90X: Function → Bluetooth → On."/>
+
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+            <Button x:Name="ScanBtn"   Content="Scan for BLE MIDI"/>
+            <Button x:Name="ConnectBtn" Classes="accent" Content="Connect" IsEnabled="False"/>
+          </StackPanel>
+
+          <!-- Device list — fixed height keeps the card compact. -->
+          <ListBox x:Name="DevicesList"
+                   Height="92"
+                   BorderBrush="{DynamicResource LogBorderBrush}"
+                   BorderThickness="1"
+                   CornerRadius="4"/>
+
+          <!-- MIDI TX channel row: rewrite outgoing channel nibble to match the
+               device's RX channel. Some pianos (Roland FP-90X) receive on a
+               different channel than their Transmit Channel setting suggests.
+               Auto-saved per BLE MAC in %AppData%\PerfectBluetoothMidi\devices.json. -->
+          <StackPanel Orientation="Horizontal"
+                      Spacing="8"
+                      VerticalAlignment="Center"
+                      Margin="0,10,0,0">
+            <TextBlock Text="TX channel:"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <ComboBox x:Name="ChannelCombo"
+                      MinWidth="90"
+                      MinHeight="30"
+                      ToolTip.Tip="Outgoing MIDI channel for this device. 'Passthrough' keeps the channel in each message untouched."/>
+            <Button x:Name="DetectChannelBtn"
+                    Content="Detect…"
+                    Padding="10,4"
+                    IsEnabled="False"
+                    ToolTip.Tip="Play N ascending notes on each channel. Count the notes you hear — that's the device's receive channel."/>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- =================================================================
+         Row 2 — Keyboard card.
+         ================================================================= -->
+    <Border Grid.Row="2" Classes="card" Margin="0,0,0,14">
+      <StackPanel Spacing="0">
+        <TextBlock Classes="sectionHead" Text="3  Test the link  (piano ⇄ PC)"/>
+        <TextBlock Classes="sectionSub"
+                   Text="Play a note on the piano — the matching key lights blue. Click keys here, or press A S D F G H J / W E T Y U to send notes back."/>
+
+        <!-- Custom Control rendered via DrawingContext. Height is intrinsic
+             but we set a sensible default so the empty card doesn't collapse. -->
+        <local:PianoKeyboard x:Name="Keyboard"
+                             Height="150"
+                             Margin="0,4,0,0"/>
+      </StackPanel>
+    </Border>
+
+    <!-- =================================================================
+         Row 3 — Activity log fills remaining space.
+         ================================================================= -->
+    <Border Grid.Row="3" Classes="card">
+      <Grid RowDefinitions="Auto,Auto,*">
+        <TextBlock Grid.Row="0" Classes="sectionHead" Text="Activity"/>
+
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    Spacing="16"
+                    Margin="0,4,0,8">
+          <CheckBox x:Name="VerboseBox"
+                    Content="Verbose logging (per-message diagnostics)"/>
+          <Button   x:Name="ClearLogBtn" Content="Clear"/>
+          <Button   x:Name="SaveLogBtn"  Content="Save log…"/>
+        </StackPanel>
+
+        <TextBox x:Name="LogBox"
+                 Grid.Row="2"
+                 Classes="log"/>
+      </Grid>
+    </Border>
+  </Grid>
+
+  <!-- Tray icon is wired up in code-behind (InstallTrayIcon): Avalonia
+       attaches the TrayIcons list to Application.Current, not the window. -->
+
+</Window>

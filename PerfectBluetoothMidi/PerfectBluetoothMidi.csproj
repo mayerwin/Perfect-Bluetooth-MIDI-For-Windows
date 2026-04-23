@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- net10.0-windows10.0.22621.0 gives us Windows 11 WinRT projections
+         (Windows.Devices.Bluetooth.*, Windows.Devices.Enumeration.*).
+         .NET 10 is the current LTS (Nov 2025 / supported through Nov 2028). -->
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>PerfectBluetoothMidi</RootNamespace>
+    <AssemblyName>PerfectBluetoothMidi</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>Perfect Bluetooth MIDI</Product>
+    <Company>Erwin Mayer</Company>
+    <Description>Perfect Bluetooth MIDI — bridges a Bluetooth LE MIDI device (Roland FP-90X, WIDI Master, CME, Yamaha MD-BT01, …) into the new Windows MIDI Services stack so any DAW or Web MIDI site can use it as if it were wired.</Description>
+
+    <!-- Avalonia: modern cross-platform XAML UI. Fluent theme ships with
+         the Themes.Fluent package, and compiled bindings give us type-safe
+         XAML + catch typos at build time. -->
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+
+    <!-- Publish defaults. These don't affect F5/Debug builds (they only kick
+         in on `dotnet publish`), so dev iteration stays fast. RuntimeIdentifier
+         and SelfContained are passed on the command line by BUILD.bat. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+
+    <!-- Trim the Windows SDK projections (Microsoft.Windows.SDK.NET.dll is
+         ~26 MB uncompressed on disk — it projects the ENTIRE Windows 10/11
+         WinRT surface) down to just the types/members we actually call.
+         TrimMode "partial" leaves our own assemblies and Avalonia alone
+         (both use reflection in places the linker can't fully prove safe),
+         and only trims assemblies that opt in — in practice the SDK
+         projection, which IS trim-safe. Net effect on this project: roughly
+         halves the single-file exe. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Avalonia 11.2.x — last stable as of April 2026 is 11.2.3.
+         Desktop brings the classic-desktop startup lifetime and Win32 backend.
+         Themes.Fluent adds the Fluent design-system theme. -->
+    <PackageReference Include="Avalonia" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Avalonia's SDK integration auto-globs *.axaml into AvaloniaResource,
+         so we do NOT add an explicit <AvaloniaResource Include="**/*.axaml"/>
+         here — doing so registers every XAML file twice and the compiler
+         rejects the build with AVLN2002 "Duplicate x:Class".
+         We still opt the app icon in explicitly; it's not in the default globs.
+         This makes Window.Icon="/app.ico" work and lets code load the icon
+         at runtime via avares://PerfectBluetoothMidi/app.ico. -->
+    <AvaloniaResource Include="app.ico" />
+  </ItemGroup>
+
+</Project>

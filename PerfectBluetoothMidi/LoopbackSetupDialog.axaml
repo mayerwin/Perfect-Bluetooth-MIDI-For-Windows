@@ -1,0 +1,103 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PerfectBluetoothMidi.LoopbackSetupDialog"
+        Title="Set up a MIDI loopback endpoint"
+        Width="640"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource AppBgBrush}"
+        ShowInTaskbar="False"
+        Icon="/app.ico">
+
+  <Border Padding="28,24,28,20">
+    <StackPanel Spacing="0">
+
+      <TextBlock Text="No MIDI loopback endpoint found"
+                 FontSize="18"
+                 FontWeight="SemiBold"
+                 Foreground="{DynamicResource TextPrimaryBrush}"
+                 Margin="0,0,0,6"/>
+
+      <TextBlock TextWrapping="Wrap"
+                 Foreground="{DynamicResource TextSecondaryBrush}"
+                 LineHeight="20"
+                 Margin="0,0,0,20"
+                 Text="To let DAWs, Chrome Web MIDI sites, or MIDI-OX see your Bluetooth MIDI device as a normal MIDI port, this app needs a Windows MIDI Services loopback endpoint. Create one in either of the ways below, then click Check again."/>
+
+      <!-- Option A: GUI -->
+      <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                 Text="Option A — GUI (easiest):"/>
+      <TextBlock TextWrapping="Wrap"
+                 Foreground="{DynamicResource TextSecondaryBrush}"
+                 LineHeight="20"
+                 Margin="0,0,0,18"
+                 Text="Open MIDI Settings from the Windows Start menu → Loopback / Endpoints → Create loopback pair. Use the name BT-MIDI Bridge."/>
+
+      <!-- Option B: CLI -->
+      <TextBlock FontWeight="SemiBold" Margin="0,0,0,4"
+                 Text="Option B — Terminal:"/>
+      <TextBlock TextWrapping="Wrap"
+                 Foreground="{DynamicResource TextSecondaryBrush}"
+                 LineHeight="20"
+                 Margin="0,0,0,6"
+                 Text="In any terminal (PowerShell, cmd) run:"/>
+      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,18">
+        <TextBox x:Name="CmdBox"
+                 Grid.Column="0"
+                 IsReadOnly="True"
+                 FontFamily="Consolas,Menlo,monospace"
+                 FontSize="12"
+                 Padding="8,6"
+                 Background="{DynamicResource LogBgBrush}"
+                 BorderBrush="{DynamicResource LogBorderBrush}"
+                 Foreground="{DynamicResource TextPrimaryBrush}"
+                 BorderThickness="1"
+                 CornerRadius="4"
+                 Text='midi loopback create --root-name "BT-MIDI Bridge"'/>
+        <Button x:Name="CopyBtn"
+                Grid.Column="1"
+                Margin="8,0,0,0"
+                Padding="12,6"
+                Content="Copy"/>
+      </Grid>
+
+      <!-- Missing WMS hint -->
+      <Border Background="{DynamicResource InfoBoxBgBrush}"
+              BorderBrush="{DynamicResource InfoBoxBorderBrush}"
+              BorderThickness="1"
+              CornerRadius="4"
+              Padding="12,10"
+              Margin="0,0,0,4">
+        <StackPanel Spacing="6">
+          <TextBlock TextWrapping="Wrap"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     FontSize="12"
+                     LineHeight="17"
+                     Text="Don't have the midi command? You need Windows MIDI Services. It ships with recent Windows 11 updates; if missing, install it from the Microsoft MIDI releases page."/>
+          <Button x:Name="DocsBtn"
+                  Content="Open Microsoft MIDI releases…"
+                  Background="Transparent"
+                  Foreground="{DynamicResource AccentBrush}"
+                  BorderThickness="0"
+                  Padding="0"
+                  HorizontalAlignment="Left"/>
+        </StackPanel>
+      </Border>
+
+      <!-- Actions -->
+      <StackPanel Orientation="Horizontal"
+                  Spacing="8"
+                  HorizontalAlignment="Right"
+                  Margin="0,22,0,0">
+        <Button x:Name="CloseBtn"
+                Content="Close"
+                Padding="14,6"/>
+        <Button x:Name="RecheckBtn"
+                Classes="accent"
+                Content="Check again"/>
+      </StackPanel>
+
+    </StackPanel>
+  </Border>
+</Window>

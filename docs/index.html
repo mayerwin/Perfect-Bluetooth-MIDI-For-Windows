@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Perfect Bluetooth MIDI For Windows</title>
+<meta name="description" content="Perfect Bluetooth MIDI For Windows — a tiny app that bridges Bluetooth LE MIDI devices (Roland FP-90X, WIDI Master, CME, Yamaha MD-BT01…) into the new Windows MIDI Services stack so any DAW or Web MIDI site can use them as if they were wired.">
+<meta name="theme-color" content="#F6F7FA">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F6F7FA;
+    --card: #FFFFFF;
+    --ink: #1A1C22;
+    --ink-2: #3B3F47;
+    --ink-dim: #6C707A;
+    --border: #E4E6EB;
+    --accent: #0078D7;
+    --accent-hover: #106EBE;
+    --accent-soft: #E6F2FC;
+    --good: #16841C;
+    --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(20, 24, 32, 0.05);
+    --shadow: 0 2px 14px rgba(20, 24, 32, 0.06), 0 1px 3px rgba(20, 24, 32, 0.04);
+    --shadow-lg: 0 8px 40px rgba(20, 24, 32, 0.10), 0 2px 8px rgba(20, 24, 32, 0.05);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, kbd { font-family: var(--mono); font-size: 0.92em; }
+  kbd {
+    display: inline-block;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.85em;
+    color: var(--ink-2);
+    box-shadow: 0 1px 0 var(--border);
+  }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* ─── Header ─────────────────────────────────────────── */
+  header {
+    padding: 28px 0 10px;
+  }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--ink); }
+  .brand-mark {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #0078D7 0%, #00B7FF 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 700; font-size: 14px;
+    box-shadow: var(--shadow-sm);
+  }
+  nav a {
+    color: var(--ink-2);
+    margin-left: 20px;
+    font-weight: 500;
+    font-size: 15px;
+  }
+  nav a:hover { color: var(--accent); }
+
+  /* ─── Hero ───────────────────────────────────────────── */
+  .hero { padding: 64px 0 20px; }
+  .hero h1 {
+    font-size: 52px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 20px;
+    font-weight: 700;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, #0078D7 0%, #00B7FF 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p.lede {
+    font-size: 20px;
+    color: var(--ink-2);
+    max-width: 720px;
+    margin: 0 0 28px;
+  }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 15px;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn-primary {
+    background: var(--accent); color: white;
+    box-shadow: var(--shadow-sm);
+  }
+  .btn-primary:hover { background: var(--accent-hover); text-decoration: none; color: white; }
+  .btn-primary:active { transform: translateY(1px); }
+  .btn-ghost {
+    background: transparent; color: var(--ink-2);
+    border-color: var(--border);
+  }
+  .btn-ghost:hover { background: var(--card); color: var(--ink); text-decoration: none; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--accent-soft); color: var(--accent);
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 13px; font-weight: 500;
+    margin-left: 4px;
+  }
+  .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* ─── Screenshot ─────────────────────────────────────── */
+  .screenshot {
+    margin: 40px 0 72px;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    /* No background / border here. The captured window's own edges are
+       the app's bg (#F6F7FA); a white card + a grey border would outline
+       the image against itself and read as an unwanted dark frame. Let
+       the drop-shadow do the card separation work. */
+  }
+  .screenshot img { display: block; width: 100%; height: auto; }
+
+  /* ─── Sections ───────────────────────────────────────── */
+  section { padding: 40px 0; }
+  section h2 {
+    font-size: 30px;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    font-weight: 700;
+  }
+  section h2 .num {
+    display: inline-block;
+    width: 30px; height: 30px;
+    background: var(--accent-soft); color: var(--accent);
+    border-radius: 8px;
+    font-size: 15px; font-weight: 700;
+    text-align: center; line-height: 30px;
+    margin-right: 10px;
+    vertical-align: 3px;
+  }
+  section > .wrap > p.sub {
+    color: var(--ink-dim);
+    font-size: 17px;
+    max-width: 720px;
+    margin: 0 0 28px;
+  }
+
+  /* ─── Features grid ──────────────────────────────────── */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .feature {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 22px 20px;
+    box-shadow: var(--shadow-sm);
+  }
+  .feature h3 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .feature h3 .icon {
+    display: inline-flex; width: 28px; height: 28px;
+    background: var(--accent-soft); border-radius: 8px;
+    align-items: center; justify-content: center;
+    color: var(--accent); font-weight: 700; font-size: 14px;
+  }
+  .feature p {
+    margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.55;
+  }
+
+  /* ─── Steps ──────────────────────────────────────────── */
+  .steps {
+    display: grid;
+    gap: 16px;
+    counter-reset: step;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    gap: 18px;
+    padding: 22px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    width: 32px; height: 32px;
+    background: var(--accent); color: white;
+    border-radius: 50%;
+    font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  .step p { margin: 0 0 6px; color: var(--ink-2); font-size: 15px; }
+  .step code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  /* ─── Highlight (channel story) ──────────────────────── */
+  .highlight {
+    background: linear-gradient(135deg, #E6F2FC 0%, #F6F7FA 100%);
+    border: 1px solid var(--accent-soft);
+    border-radius: 14px;
+    padding: 32px;
+    margin: 24px 0 0;
+  }
+  .highlight h3 {
+    font-size: 20px; margin: 0 0 10px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .highlight h3 .badge {
+    background: var(--accent); color: white;
+    font-size: 11px; font-weight: 700;
+    padding: 3px 10px; border-radius: 999px;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .highlight p { margin: 0 0 10px; color: var(--ink-2); font-size: 15.5px; }
+  .highlight p:last-child { margin-bottom: 0; }
+
+  /* ─── Footer ─────────────────────────────────────────── */
+  footer {
+    padding: 48px 0 40px;
+    margin-top: 40px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-dim);
+    font-size: 14px;
+  }
+  footer .wrap {
+    display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px;
+  }
+
+  @media (max-width: 640px) {
+    .hero { padding: 40px 0 10px; }
+    .hero h1 { font-size: 38px; }
+    .hero p.lede { font-size: 17px; }
+    section { padding: 32px 0; }
+    section h2 { font-size: 24px; }
+    nav a { margin-left: 14px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <div class="brand-mark">♪</div>
+      <span>Perfect Bluetooth MIDI For Windows</span>
+    </div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#setup">Setup</a>
+      <a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Bluetooth MIDI on Windows,<br><span class="accent">actually working.</span></h1>
+    <p class="lede">
+      A tiny Windows app that bridges a Bluetooth LE MIDI keyboard
+      (Roland FP-90X, WIDI&nbsp;Master, CME, Yamaha&nbsp;MD-BT01, …) into the new
+      Windows MIDI Services stack — so any DAW, any Chrome Web&nbsp;MIDI site, any
+      MIDI-OX session can use it as if it were wired.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows/releases/latest">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        Download for Windows
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.92c.575.108.786-.25.786-.556 0-.274-.01-1-.016-1.962-3.197.695-3.873-1.541-3.873-1.541-.523-1.328-1.277-1.681-1.277-1.681-1.043-.713.08-.699.08-.699 1.153.081 1.76 1.184 1.76 1.184 1.025 1.757 2.69 1.249 3.347.955.104-.743.401-1.25.729-1.537-2.553-.29-5.238-1.277-5.238-5.683 0-1.255.448-2.283 1.182-3.088-.119-.29-.513-1.46.112-3.045 0 0 .964-.309 3.158 1.18a10.945 10.945 0 0 1 5.752 0c2.192-1.489 3.154-1.18 3.154-1.18.627 1.585.233 2.755.115 3.045.736.805 1.181 1.833 1.181 3.088 0 4.417-2.69 5.39-5.252 5.674.413.356.781 1.058.781 2.131 0 1.54-.014 2.782-.014 3.16 0 .309.207.67.792.556A11.502 11.502 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+        View on GitHub
+      </a>
+      <span class="pill">MIT licensed · single .exe · Windows 11</span>
+    </div>
+
+    <div class="screenshot">
+      <img src="screenshots/main-window.png" alt="Perfect Bluetooth MIDI For Windows — main window with loopback endpoint picker, BLE scan/connect, TX channel selector, on-screen piano, and activity log.">
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What makes this one work</h2>
+    <p class="sub">
+      Bluetooth LE MIDI on Windows is a minefield of silent-failure modes —
+      packets return <code>Success</code> at the ATT layer while the device ignores
+      them, pairings that don't encrypt, receive channels that aren't the
+      advertised transmit channel. This app handles each of those explicitly.
+    </p>
+
+    <div class="features">
+      <div class="feature">
+        <h3><span class="icon">⇄</span>Windows MIDI Services loopback</h3>
+        <p>Piggybacks on the new WMS stack. Works with both MIDI 2.0 UMP loopback pairs and the MIDI 1.0 "BLOOP" basic loopback. Apps see the bridge as a normal virtual MIDI device.</p>
+      </div>
+
+      <div class="feature">
+        <h3><span class="icon">🎹</span>Per-device channel detector</h3>
+        <p>Some pianos (FP-90X) silently receive on a channel that isn't the visible <em>Transmit Channel</em>. Click <strong>Detect…</strong>; the app plays N ascending notes on each channel 1..16. Count the notes you hear = the receive channel. Saved per BLE MAC.</p>
+      </div>
+
+      <div class="feature">
+        <h3><span class="icon">🔒</span>Correct pairing + write mode</h3>
+        <p>Pair proactively before enabling notifications (several BLE-MIDI devices drop MIDI on an unencrypted link while still returning <code>Success</code> at ATT). Prefer <code>WriteWithResponse</code>; some firmware silently drops <code>WriteWithoutResponse</code>.</p>
+      </div>
+
+      <div class="feature">
+        <h3><span class="icon">⌨</span>On-screen piano + CLI</h3>
+        <p>Avalonia UI with a bidirectional on-screen keyboard for quick testing — plus a headless CLI mode (<code>--scan</code>, <code>--connect</code>, <code>--detect-channels</code>, <code>--phase N</code>) for scripted debugging of new devices.</p>
+      </div>
+
+      <div class="feature">
+        <h3><span class="icon">📜</span>Readable diagnostics</h3>
+        <p>Activity panel with a <strong>Verbose</strong> toggle — shows status-byte names and hex for every message, plus the full GATT service/characteristic tree on connect. <strong>Save log…</strong> writes it to a file you can share.</p>
+      </div>
+
+      <div class="feature">
+        <h3><span class="icon">🧹</span>Clean quit</h3>
+        <p>Exit unpairs the device so your phone / another PC can take it over, instead of leaving Windows stuck bonded to the keyboard. Tray mode is explicit — the <code>X</code> button actually exits.</p>
+      </div>
+    </div>
+
+    <div class="highlight">
+      <h3><span class="badge">The quirk</span> Most BLE-MIDI "PC→piano silent" bugs aren't BLE bugs</h3>
+      <p>
+        After ruling out pairing, encryption, proprietary ISSC characteristics, and write-mode quirks
+        on a Roland FP-90X, it turned out the piano receives MIDI on <strong>channel 4</strong> while its
+        front-panel <em>Transmit Channel</em> shows 1. Every NoteOn we were sending on channel 1 was
+        accepted by the GATT layer and silently dropped by the piano's MIDI engine. No error, no clue.
+      </p>
+      <p>
+        The built-in <strong>Detect…</strong> button nails this in about 75 seconds without any DAW setup.
+        The fix is persisted per BLE MAC, so you do it once per device and never think about it again.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="setup">
+  <div class="wrap">
+    <h2>Setup in four steps</h2>
+    <p class="sub">One-time, about five minutes total. Full instructions and troubleshooting are in the <a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows#one-time-setup">README</a>.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Install Windows MIDI Services</h3>
+          <p>WMS ships with recent Windows 11 updates. If <code>midi --version</code> fails in a terminal, install it from the <a href="https://github.com/microsoft/MIDI/releases">Microsoft MIDI releases page</a>. On first launch of the app, Windows will also prompt to download the .NET 10 Desktop Runtime if it isn't already installed — one click from the built-in dialog.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div>
+          <h3>Create a loopback endpoint</h3>
+          <p>Open <strong>MIDI Settings</strong> from the Start menu → <strong>Create loopback pair</strong> → root name <code>BT-MIDI Bridge</code>. Or from a terminal: <code>midi loopback create --root-name "BT-MIDI Bridge"</code>.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div>
+          <h3>Download and run the app</h3>
+          <p><a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows/releases/latest">Grab <code>PerfectBluetoothMidi.exe</code> from Releases</a>. Single ~21 MB file — put it anywhere and double-click. No installer.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div>
+          <h3>Scan, connect, (optional) detect channel</h3>
+          <p>Put your BLE-MIDI device into advertising mode, click <strong>Scan</strong>, pick it from the list, click <strong>Connect</strong>. If nothing sounds when you press keys: click <strong>Detect…</strong> next to the TX channel dropdown and pick the channel with the audible burst.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows">GitHub repo</a> ·
+      <a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows/blob/main/LICENSE">MIT license</a> ·
+      <a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows/issues">Report an issue</a>
+    </div>
+    <div>Built on Avalonia · Windows MIDI Services · .NET 10</div>
+  </div>
+</footer>
+
+</body>
+</html>

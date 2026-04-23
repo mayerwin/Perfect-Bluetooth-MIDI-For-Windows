@@ -1,0 +1,16 @@
+# Default: auto-detect text files; store with LF in the repo.
+* text=auto eol=lf
+
+# Windows-only batch/command files stay CRLF on checkout.
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+
+# Visual Studio solution files are CRLF by convention.
+*.sln     text eol=crlf
+
+# Binaries — don't touch.
+*.png     binary
+*.ico     binary
+*.jpg     binary
+*.gif     binary
