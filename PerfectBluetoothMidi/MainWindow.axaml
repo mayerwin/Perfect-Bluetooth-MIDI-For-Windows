@@ -65,7 +65,7 @@
         <StackPanel Spacing="0">
           <TextBlock Classes="sectionHead" Text="1  MIDI loopback endpoint"/>
           <TextBlock Classes="sectionSub"
-                     Text="Any DAW, Chrome Web MIDI, or MIDI-OX opens this as a virtual MIDI device."/>
+                     Text="Any DAW or Chrome Web MIDI site (like Midiano) opens this as a virtual MIDI device."/>
 
           <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
             <ComboBox x:Name="PortCombo"
@@ -102,7 +102,7 @@
           <!-- Recommended test site. Opens in the user's default browser via
                the code-behind Click handler (no LinkLabel in Avalonia). -->
           <Button x:Name="MidianoBtn"
-                  Content="Try it with Midiano — great song library…"
+                  Content="Try it with Midiano — nice song catalogue…"
                   HorizontalAlignment="Left"
                   Background="Transparent"
                   Foreground="{DynamicResource AccentBrush}"
