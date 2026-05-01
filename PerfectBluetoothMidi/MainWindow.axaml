@@ -4,7 +4,7 @@
         x:Class="PerfectBluetoothMidi.MainWindow"
         Title="Perfect Bluetooth MIDI"
         Width="1040" Height="760"
-        MinWidth="820" MinHeight="540"
+        MinWidth="820" MinHeight="760"
         Background="{DynamicResource AppBgBrush}"
         Icon="/app.ico"
         WindowStartupLocation="CenterScreen">
@@ -74,7 +74,7 @@
             <TextBlock Classes="sectionSub"
                        Text="Choose the name your DAW or Chrome Web MIDI site (like Midiano) will see. The port appears while this app runs."/>
 
-            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
+            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
               <TextBox x:Name="VirtualPortNameBox"
                        Grid.Column="0"
                        MinHeight="32"
@@ -86,33 +86,43 @@
                       ToolTip.Tip="Save the name. If the bridge is already running, restart it to apply."/>
             </Grid>
 
+            <!-- Backend-switch section. Visually demarcated by hairline
+                 borders above and below so it reads as its own affordance,
+                 not part of the main port-naming flow. The link itself
+                 stays muted — we don't want to encourage users away from
+                 the virtual-device backend. -->
+            <Border BorderBrush="{DynamicResource LogBorderBrush}"
+                    BorderThickness="0,1,0,0"
+                    Margin="0,12,0,0"/>
+            <Button x:Name="UseLoopbackInsteadBtn"
+                    Classes="link"
+                    Content="Use a classic loopback endpoint instead…"
+                    HorizontalAlignment="Left"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    FontSize="11"
+                    Margin="0,8,0,8"
+                    ToolTip.Tip="Switch this app to the legacy WMS-loopback path (requires a loopback endpoint in MIDI Settings)."/>
+            <Border BorderBrush="{DynamicResource LogBorderBrush}"
+                    BorderThickness="0,1,0,0"
+                    Margin="0,0,0,10"/>
+
+            <!-- Combined DAW-side hint (port name + restart-host reminder).
+                 Set in code-behind so the {name} part stays in sync with
+                 whatever the user typed and Applied. -->
             <TextBlock x:Name="VirtualDawHint"
                        TextWrapping="Wrap"
                        FontSize="12"
                        Foreground="{DynamicResource TextMutedBrush}"
                        LineHeight="17"
-                       Margin="0,6,0,0"/>
+                       Margin="0,2,0,0"/>
 
             <Button x:Name="VirtualMidianoBtn"
-                    Content="Try it with Midiano — nice song catalogue…"
+                    Classes="link"
+                    Content="Try it with Midiano — nice song catalog…"
                     HorizontalAlignment="Left"
-                    Background="Transparent"
                     Foreground="{DynamicResource AccentBrush}"
-                    Padding="0"
-                    BorderThickness="0"
                     Margin="0,8,0,0"
                     ToolTip.Tip="Opens app.midiano.com in your browser."/>
-
-            <Button x:Name="UseLoopbackInsteadBtn"
-                    Content="Use a classic loopback endpoint instead…"
-                    HorizontalAlignment="Left"
-                    Background="Transparent"
-                    Foreground="{DynamicResource TextMutedBrush}"
-                    Padding="0"
-                    BorderThickness="0"
-                    FontSize="11"
-                    Margin="0,12,0,0"
-                    ToolTip.Tip="Switch this app to the legacy WMS-loopback path (requires you to create a loopback in MIDI Settings first)."/>
           </StackPanel>
 
           <!-- Loopback panel: the legacy path. Shown when the WMS App SDK
@@ -123,7 +133,7 @@
             <TextBlock Classes="sectionSub"
                        Text="Any DAW or Chrome Web MIDI site (like Midiano) opens this as a virtual MIDI device."/>
 
-            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
+            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
               <ComboBox x:Name="PortCombo"
                         Grid.Column="0"
                         HorizontalAlignment="Stretch"
@@ -134,14 +144,45 @@
                       Content="Refresh"/>
             </Grid>
 
+            <!-- Backend-switch section. One of UseVirtualInsteadBtn /
+                 InstallSdkRuntimeBtn is visible at a time, picked by
+                 ApplyBackendVisibility based on whether the WMS App SDK
+                 runtime is detected on this machine. Visually delimited so
+                 it's findable without crowding the loopback-picking UI. -->
+            <Border BorderBrush="{DynamicResource LogBorderBrush}"
+                    BorderThickness="0,1,0,0"
+                    Margin="0,12,0,0"/>
+            <Button x:Name="UseVirtualInsteadBtn"
+                    Classes="link"
+                    Content="Use a virtual MIDI port instead (no loopback needed)…"
+                    HorizontalAlignment="Left"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    FontSize="11"
+                    Margin="0,8,0,8"
+                    IsVisible="False"
+                    ToolTip.Tip="Switch to the WMS App SDK virtual-device backend. The app will declare its own MIDI port on demand; no loopback to create."/>
+            <Button x:Name="InstallSdkRuntimeBtn"
+                    Classes="link"
+                    Content="Install the WMS App SDK Runtime to skip this step…"
+                    HorizontalAlignment="Left"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    FontSize="11"
+                    Margin="0,8,0,8"
+                    IsVisible="False"
+                    ToolTip.Tip="Opens the Microsoft MIDI releases page. Once installed, this app will create a virtual port on its own — no loopback needed."/>
+            <Border BorderBrush="{DynamicResource LogBorderBrush}"
+                    BorderThickness="0,1,0,0"
+                    Margin="0,0,0,10"/>
+
             <Button x:Name="LoopbackHelpBtn"
+                    Classes="link"
                     Content="How to create a loopback endpoint…"
                     HorizontalAlignment="Left"
-                    Background="Transparent"
                     Foreground="{DynamicResource AccentBrush}"
-                    Padding="0"
-                    BorderThickness="0"/>
+                    Margin="0,2,0,0"/>
 
+            <!-- Combined DAW-side hint (which side to pick + restart-host
+                 reminder). Set in code-behind. -->
             <TextBlock x:Name="DawHint"
                        TextWrapping="Wrap"
                        FontSize="12"
@@ -150,25 +191,12 @@
                        Margin="0,6,0,0"/>
 
             <Button x:Name="MidianoBtn"
-                    Content="Try it with Midiano — nice song catalogue…"
+                    Classes="link"
+                    Content="Try it with Midiano — nice song catalog…"
                     HorizontalAlignment="Left"
-                    Background="Transparent"
                     Foreground="{DynamicResource AccentBrush}"
-                    Padding="0"
-                    BorderThickness="0"
                     Margin="0,8,0,0"
                     ToolTip.Tip="Opens app.midiano.com in your browser. Pick the same loopback endpoint the DAW-side hint above tells you to."/>
-
-            <Button x:Name="InstallSdkRuntimeBtn"
-                    Content="Install the WMS App SDK Runtime to skip this step…"
-                    HorizontalAlignment="Left"
-                    Background="Transparent"
-                    Foreground="{DynamicResource TextMutedBrush}"
-                    Padding="0"
-                    BorderThickness="0"
-                    FontSize="11"
-                    Margin="0,12,0,0"
-                    ToolTip.Tip="Opens the Microsoft MIDI releases page. Once installed, this app will create a virtual port on its own — no loopback needed."/>
           </StackPanel>
 
         </Grid>
@@ -192,6 +220,14 @@
                    BorderBrush="{DynamicResource LogBorderBrush}"
                    BorderThickness="1"
                    CornerRadius="4"/>
+
+          <!-- Auto-reconnect at launch. The MAC of the last connected
+               device is persisted in app.json; on next launch we scan
+               and, if that device shows up, connect to it automatically. -->
+          <CheckBox x:Name="AutoReconnectBox"
+                    Content="Auto-scan and reconnect at launch"
+                    Margin="0,8,0,0"
+                    ToolTip.Tip="On launch, scan for the last connected device and connect automatically when it advertises. Disable if you'd rather always pick manually."/>
 
           <!-- MIDI TX channel row: rewrite outgoing channel nibble to match the
                device's RX channel. Some pianos (Roland FP-90X) receive on a
@@ -227,10 +263,13 @@
         <TextBlock Classes="sectionSub"
                    Text="Play a note on the piano — the matching key lights blue. Click keys here, or press A S D F G H J / W E T Y U to send notes back."/>
 
-        <!-- Custom Control rendered via DrawingContext. Height is intrinsic
-             but we set a sensible default so the empty card doesn't collapse. -->
+        <!-- Custom Control rendered via DrawingContext. Height kept compact
+             so the activity log gets meaningful space at the window's
+             MinHeight without forcing a tall MinHeight that would overflow
+             smaller screens. The black-key proportion in PianoKeyboard.cs
+             was also reduced so the keys still look right at this height. -->
         <local:PianoKeyboard x:Name="Keyboard"
-                             Height="150"
+                             Height="90"
                              Margin="0,4,0,0"/>
       </StackPanel>
     </Border>
@@ -252,8 +291,14 @@
           <Button   x:Name="SaveLogBtn"  Content="Save log…"/>
         </StackPanel>
 
+        <!-- MinHeight ensures the log keeps several lines visible even when
+             the user shrinks the window all the way down to the window-level
+             MinHeight. The Grid above otherwise gives this row "*" sizing,
+             which lets it collapse to zero when the auto-sized rows above
+             already fill the available height. -->
         <TextBox x:Name="LogBox"
                  Grid.Row="2"
+                 MinHeight="80"
                  Classes="log"/>
       </Grid>
     </Border>

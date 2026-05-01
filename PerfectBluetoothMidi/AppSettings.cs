@@ -38,6 +38,24 @@ public sealed class AppSettings
     /// loopback there).
     /// </summary>
     public string VirtualPortName { get; set; } = "BT-MIDI Bridge";
+
+    /// <summary>
+    /// When true (default), the app starts a BLE scan on launch and, if it
+    /// sees the device whose MAC is in <see cref="LastConnectedMac"/>,
+    /// connects to it automatically. If that device isn't advertising
+    /// (powered off, paired elsewhere, out of range), the scan times out
+    /// silently and the user falls back to the manual flow.
+    /// </summary>
+    public bool AutoReconnectOnLaunch { get; set; } = true;
+
+    /// <summary>
+    /// MAC of the last BLE device the app successfully connected to,
+    /// formatted as <c>XX:XX:XX:XX:XX:XX</c> (matches
+    /// <see cref="DeviceSettingsStore.FormatMac"/>). Empty if the user
+    /// hasn't connected to anything yet. Used by the auto-reconnect flow
+    /// to know which advertisement to act on.
+    /// </summary>
+    public string LastConnectedMac { get; set; } = "";
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]

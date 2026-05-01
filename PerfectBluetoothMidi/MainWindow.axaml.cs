@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private TextBlock _dawHint         = null!;
     private Button    _midianoBtn      = null!;
     private Button    _installSdkRuntimeBtn = null!;
+    private Button    _useVirtualInsteadBtn = null!;
     // Card 2 + the rest (unchanged from before the virtual-device port)
     private Button    _scanBtn         = null!;
     private Button    _connectBtn      = null!;
@@ -68,6 +69,7 @@ public partial class MainWindow : Window
     private ComboBox  _channelCombo    = null!;
     private Button    _detectChannelBtn = null!;
     private ComboBox  _themeCombo      = null!;
+    private CheckBox  _autoReconnectBox = null!;
 
     // Status-pill colours are looked up from the theme at render time — see
     // ThemeBrush(). This is what makes Light/Dark switching re-colour the
@@ -84,15 +86,51 @@ public partial class MainWindow : Window
     /// </summary>
     private string _activeBackend = "Loopback";
 
+    /// <summary>
+    /// Long-lived virtual endpoint while the app is in Virtual mode. Created
+    /// when entering Virtual mode (so DAWs see the port immediately, even
+    /// before any BLE device is connected) and disposed when leaving Virtual
+    /// mode or quitting. <c>null</c> in Loopback mode.
+    /// </summary>
+    private WmsVirtualHostEndpoint? _virtualEndpoint;
+
+    /// <summary>
+    /// Endpoint passed to the bridge for the current BLE session. In
+    /// Loopback mode this is a fresh <see cref="WinMMHostEndpoint"/> that
+    /// MainWindow owns + disposes per BLE connect/disconnect; in Virtual
+    /// mode it points at the long-lived <see cref="_virtualEndpoint"/>
+    /// (NOT disposed on disconnect).
+    /// </summary>
+    private IHostMidiEndpoint? _bridgeEndpoint;
+    private bool _bridgeOwnsEndpoint;
+
     private BluetoothLEAdvertisementWatcher? _watcher;
     private DispatcherTimer?                 _scanTimer;
     private int _scanGeneration;
+    /// <summary>
+    /// Non-zero when a scan is being driven by the auto-reconnect flow:
+    /// holds the BLE address we want to find. The Found callback in
+    /// <see cref="StartScan"/> auto-connects and clears this when it sees
+    /// the matching advertisement; the scan timeout also clears it. UI
+    /// thread only — no synchronisation needed.
+    /// </summary>
+    private ulong _autoConnectAddr;
     private readonly List<(ulong addr, string name)> _foundDevices = new();
     private readonly object _foundDevicesLock = new();
 
     private TrayIcon? _trayIcon;
     private bool _shuttingDown;
     private bool _detectionRunning;
+    /// <summary>
+    /// Re-entry guard for <see cref="ToggleConnectionAsync"/>. The button's
+    /// IsEnabled flicker isn't enough on its own — the auto-reconnect
+    /// callback (in <see cref="StartScan"/>) calls
+    /// <c>ToggleConnectionAsync</c> directly, bypassing the button. A
+    /// concurrent BLE connect would double-enter <c>BleMidiClient</c>'s
+    /// <c>TryConnectOnceAsync</c>, which begins by disconnecting any
+    /// in-flight session.
+    /// </summary>
+    private bool _connectInFlight;
     private bool _suppressChannelComboSave; // true while loading from storage
     private CancellationTokenSource? _detectCts;
 
@@ -115,7 +153,10 @@ public partial class MainWindow : Window
 
         Opened  += async (_, _) =>
         {
-            DetectAndApplyBackend();
+            // All the heavy WMS/SDK work is awaited via Task.Run so the
+            // window can paint and the user sees progress in the activity
+            // log instead of a frozen UI.
+            await DetectAndApplyBackendAsync();
 
             if (_activeBackend == "Loopback")
             {
@@ -139,10 +180,12 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Virtual mode has nothing to set up — endpoint is created on
-                // demand when the user clicks Connect on a BLE device.
                 UpdateVirtualDawHint();
             }
+
+            // Auto-reconnect after backend setup completes (so the virtual
+            // endpoint is already live for DAWs by the time we connect BLE).
+            TryAutoReconnect();
         };
         Closing += OnWindowClosing;
 
@@ -167,6 +210,7 @@ public partial class MainWindow : Window
         _dawHint         = this.FindControl<TextBlock>("DawHint")!;
         _midianoBtn      = this.FindControl<Button>("MidianoBtn")!;
         _installSdkRuntimeBtn = this.FindControl<Button>("InstallSdkRuntimeBtn")!;
+        _useVirtualInsteadBtn = this.FindControl<Button>("UseVirtualInsteadBtn")!;
 
         _scanBtn         = this.FindControl<Button>("ScanBtn")!;
         _connectBtn      = this.FindControl<Button>("ConnectBtn")!;
@@ -182,6 +226,7 @@ public partial class MainWindow : Window
         _channelCombo    = this.FindControl<ComboBox>("ChannelCombo")!;
         _detectChannelBtn = this.FindControl<Button>("DetectChannelBtn")!;
         _themeCombo      = this.FindControl<ComboBox>("ThemeCombo")!;
+        _autoReconnectBox = this.FindControl<CheckBox>("AutoReconnectBox")!;
     }
 
     // ===================================================================
@@ -305,6 +350,8 @@ public partial class MainWindow : Window
     {
         try { StopScanInternal(); } catch { }
         try { _bridge.Dispose(); } catch { }
+        try { ReleaseBridgeEndpoint(); } catch { }
+        try { CloseVirtualEndpoint(); } catch { }
 
         // User-requested guarantee: always release the BLE device cleanly on
         // exit so other consumers (phone apps, another PC) can take it.
@@ -365,7 +412,17 @@ public partial class MainWindow : Window
             }
         };
 
-        _useLoopbackInsteadBtn.Click += (_, _) => SwitchBackend("Loopback");
+        _useLoopbackInsteadBtn.Click += (_, _) => _ = SwitchBackendAsync("Loopback");
+        _useVirtualInsteadBtn.Click  += (_, _) => _ = SwitchBackendAsync("Virtual");
+
+        // Auto-reconnect checkbox: load saved state, then persist on toggle.
+        _autoReconnectBox.IsChecked = AppSettingsStore.Load().AutoReconnectOnLaunch;
+        _autoReconnectBox.IsCheckedChanged += (_, _) =>
+        {
+            var s = AppSettingsStore.Load();
+            s.AutoReconnectOnLaunch = _autoReconnectBox.IsChecked == true;
+            AppSettingsStore.Save(s);
+        };
 
         _scanBtn.Click    += (_, _) => SafeRun(StartScan);
         _connectBtn.Click += async (_, _) =>
@@ -709,8 +766,10 @@ public partial class MainWindow : Window
         else if (name.EndsWith(" (B)", StringComparison.Ordinal)) otherSide = name[..^4] + " (A)";
 
         _dawHint.Text = otherSide is null
-            ? $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output."
-            : $"In your DAW / Web MIDI site, open “{otherSide}” (the other side of the pair) as BOTH the MIDI input and MIDI output — same name for both directions.";
+            ? $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output. " +
+              RestartHostHint
+            : $"In your DAW / Web MIDI site, open “{otherSide}” (the other side of the pair) as BOTH the MIDI input and MIDI output — same name for both directions. " +
+              RestartHostHint;
     }
 
     private int CurrentLoopbackCount()
@@ -805,6 +864,20 @@ public partial class MainWindow : Window
                     _devicesList.ItemsSource = items;
                     if (_devicesList.SelectedIndex < 0 && items.Count > 0)
                         _devicesList.SelectedIndex = 0;
+
+                    // Auto-reconnect: if this advertisement matches the
+                    // saved last-connected MAC, select it and trigger
+                    // Connect immediately. Stop scanning first so the
+                    // generation guard can't disconnect us mid-flight.
+                    if (_autoConnectAddr != 0 && addr == _autoConnectAddr)
+                    {
+                        ulong target = _autoConnectAddr;
+                        _autoConnectAddr = 0;
+                        _devicesList.SelectedIndex = items.Count - 1;
+                        AppendLog($"Auto-reconnect: found {FormatAddr(target)}, connecting…");
+                        StopScanInternal();
+                        _ = ToggleConnectionAsync();
+                    }
                 });
             });
         }
@@ -822,6 +895,12 @@ public partial class MainWindow : Window
             int count;
             lock (_foundDevicesLock) count = _foundDevices.Count;
             AppendLog($"Scan finished. {count} device(s) found.");
+            if (_autoConnectAddr != 0)
+            {
+                AppendLog($"Auto-reconnect: last device {FormatAddr(_autoConnectAddr)} was not advertising. " +
+                          "Power-cycle the device and click Scan again, or pick another device manually.");
+                _autoConnectAddr = 0;
+            }
         };
         _scanTimer.Start();
     }
@@ -845,6 +924,15 @@ public partial class MainWindow : Window
     // ===================================================================
     private async Task ToggleConnectionAsync()
     {
+        if (_connectInFlight) return;
+        _connectInFlight = true;
+        // Any explicit connect/disconnect cancels a pending auto-reconnect:
+        // we don't want a stray advertisement to trigger another connect
+        // partway through this one (or shortly after, against the wrong
+        // device).
+        _autoConnectAddr = 0;
+        try
+        {
         if (_ble.IsConnected)
         {
             _connectBtn.IsEnabled = false;
@@ -852,6 +940,7 @@ public partial class MainWindow : Window
             try
             {
                 _bridge.Stop();
+                ReleaseBridgeEndpoint();
                 await _ble.DisconnectAsync();
             }
             finally
@@ -871,8 +960,8 @@ public partial class MainWindow : Window
             pick = _foundDevices[_devicesList.SelectedIndex];
         }
 
-        IHostMidiEndpoint? endpoint = BuildHostEndpointForCurrentBackend();
-        if (endpoint is null)
+        bool haveEndpoint = await AcquireBridgeEndpointAsync().ConfigureAwait(true);
+        if (!haveEndpoint)
         {
             // Fatal-for-bridge but not for BLE: connect anyway so the user
             // can still drive the on-screen keyboard to test the link.
@@ -889,66 +978,210 @@ public partial class MainWindow : Window
 
         if (!ok)
         {
-            try { endpoint?.Dispose(); } catch { }
+            ReleaseBridgeEndpoint();
             _connectBtn.IsEnabled = true;
             _connectBtn.Content   = "Connect";
             return;
         }
 
-        if (endpoint is null)
+        // Persist for the auto-reconnect flow on the next launch. We save
+        // even if the bridge later fails to start — the user could be
+        // testing the BLE link via the on-screen keyboard, and this is
+        // still the device they care about.
+        try
+        {
+            var s = AppSettingsStore.Load();
+            s.LastConnectedMac = DeviceSettingsStore.FormatMac(pick.addr);
+            AppSettingsStore.Save(s);
+        }
+        catch { /* persistence is best-effort */ }
+
+        if (_bridgeEndpoint is null)
         {
             // BLE-only mode: keyboard works, but apps see nothing.
             return;
         }
 
-        if (!_bridge.Start(endpoint))
+        if (!_bridge.Start(_bridgeEndpoint))
         {
             AppendLog("Bridge failed to start; disconnecting BLE.");
+            ReleaseBridgeEndpoint();
             try { await _ble.DisconnectAsync(); } catch { }
             _connectBtn.IsEnabled = true;
             _connectBtn.Content   = "Connect";
             return;
         }
 
-        AppendLog($"Bridging '{pick.name}' ⇄ {(_activeBackend == "Virtual" ? "virtual port" : "loopback endpoint")} '{endpoint.DisplayName}'. " +
+        AppendLog($"Bridging '{pick.name}' ⇄ {(_activeBackend == "Virtual" ? "virtual port" : "loopback endpoint")} '{_bridgeEndpoint.DisplayName}'. " +
                   "Any app that opens this endpoint will now see your BT device.");
+        }
+        finally { _connectInFlight = false; }
     }
 
     /// <summary>
-    /// Build the host endpoint appropriate for the active backend, using the
-    /// user's current selections (loopback combo pick, or live virtual port
-    /// name from the textbox). Returns null if the user hasn't picked a
-    /// loopback yet — the bridge runs in BLE-only mode in that case.
+    /// Release the per-session bridge endpoint reference. Disposes it only
+    /// if the bridge owned its lifetime (Loopback mode); for Virtual mode
+    /// the long-lived endpoint stays open so DAWs keep seeing the port.
+    /// </summary>
+    private void ReleaseBridgeEndpoint()
+    {
+        if (_bridgeOwnsEndpoint && _bridgeEndpoint is not null)
+        {
+            try { _bridgeEndpoint.Dispose(); } catch { }
+        }
+        _bridgeEndpoint = null;
+        _bridgeOwnsEndpoint = false;
+    }
+
+    /// <summary>
+    /// Acquire (and on Loopback, open) the host endpoint to attach the
+    /// bridge to. Sets <see cref="_bridgeEndpoint"/> and
+    /// <see cref="_bridgeOwnsEndpoint"/> as side-effects.
     /// </summary>
     /// <remarks>
-    /// In virtual mode this reads directly from <see cref="_virtualPortNameBox"/>
-    /// rather than from <c>AppSettings.VirtualPortName</c>, so the user's
-    /// typed-but-not-yet-Applied edit takes effect on Connect. We also
-    /// persist the value here so the next launch starts with the same name
-    /// — equivalent to clicking Apply implicitly.
+    /// In Virtual mode we hand back the long-lived
+    /// <see cref="_virtualEndpoint"/> (already open) and mark
+    /// <c>_bridgeOwnsEndpoint=false</c> so the disconnect path leaves it
+    /// alive — the port stays visible to DAWs across BLE connect/disconnect
+    /// cycles. If the user has typed a new port name without clicking
+    /// Apply, we silently apply it here too (same UX as before).
+    ///
+    /// In Loopback mode we create a fresh <see cref="WinMMHostEndpoint"/>
+    /// and call <c>Open()</c>; the disconnect path disposes it.
+    /// Returns <c>false</c> if no usable endpoint can be built — the bridge
+    /// stays in BLE-only mode.
     /// </remarks>
-    private IHostMidiEndpoint? BuildHostEndpointForCurrentBackend()
+    private async Task<bool> AcquireBridgeEndpointAsync()
     {
+        _bridgeEndpoint = null;
+        _bridgeOwnsEndpoint = false;
+
         if (_activeBackend == "Virtual")
         {
-            string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(name)) name = "BT-MIDI Bridge";
-
+            // Apply any pending textbox edit and re-open if the name changed.
+            string typedName = (_virtualPortNameBox.Text ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(typedName)) typedName = "BT-MIDI Bridge";
             var s = AppSettingsStore.Load();
-            if (s.VirtualPortName != name)
+            if (s.VirtualPortName != typedName)
             {
-                s.VirtualPortName = name;
+                s.VirtualPortName = typedName;
                 AppSettingsStore.Save(s);
             }
-            return new WmsVirtualHostEndpoint(name);
+            if (_virtualEndpoint is null || _virtualEndpoint.DisplayName != typedName)
+            {
+                await CloseVirtualEndpointAsync().ConfigureAwait(true);
+                await EnsureVirtualEndpointOpenAsync().ConfigureAwait(true);
+            }
+
+            if (_virtualEndpoint is null)
+            {
+                AppendLog("Virtual endpoint isn't available — see earlier WMS log lines for the reason.");
+                return false;
+            }
+            _bridgeEndpoint = _virtualEndpoint;
+            _bridgeOwnsEndpoint = false;   // long-lived; do NOT dispose on disconnect
+            return true;
         }
 
         if (_portCombo.SelectedItem is not PortPair port)
         {
             AppendLog("No loopback endpoint selected — pick one in card 1 or click Refresh.");
-            return null;
+            return false;
         }
-        return new WinMMHostEndpoint(port.InputId, port.OutputId, port.Name);
+        var ep = new WinMMHostEndpoint(port.InputId, port.OutputId, port.Name);
+        ep.Log += s => AppendLog($"[loopback] {s}");
+        if (!ep.Open())
+        {
+            try { ep.Dispose(); } catch { }
+            return false;
+        }
+        _bridgeEndpoint = ep;
+        _bridgeOwnsEndpoint = true;        // dispose on disconnect
+        return true;
+    }
+
+    /// <summary>
+    /// Open (or re-open) the long-lived WMS virtual endpoint with the name
+    /// in the textbox / saved settings. No-op if one is already open under
+    /// the same name. Failures are logged; <see cref="_virtualEndpoint"/>
+    /// is left null so callers can detect the unavailable state.
+    /// </summary>
+    /// <remarks>
+    /// The actual <c>Open()</c> call is forced to a background thread —
+    /// WMS's <c>MidiVirtualDeviceManager.CreateVirtualDevice</c> is a
+    /// synchronous WinRT call that can block several seconds (especially
+    /// when a previous process just exited and the service hasn't yet
+    /// released the prior registration). Doing it on the UI thread freezes
+    /// the window.
+    ///
+    /// Also retries on null-return / open-failure with progressive backoff,
+    /// because that's the same race: the WMS service can briefly reject a
+    /// CreateVirtualDevice for a name that's still being unregistered from
+    /// a prior session. Three attempts with 0/600/1800 ms delays cover the
+    /// observed worst case in practice.
+    /// </remarks>
+    private async Task EnsureVirtualEndpointOpenAsync()
+    {
+        string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(name)) name = AppSettingsStore.Load().VirtualPortName;
+        if (string.IsNullOrEmpty(name)) name = "BT-MIDI Bridge";
+
+        if (_virtualEndpoint is not null && _virtualEndpoint.DisplayName == name) return;
+        if (_virtualEndpoint is not null) await CloseVirtualEndpointAsync().ConfigureAwait(true);
+
+        int[] delaysMs = { 0, 600, 1800 };
+        for (int attempt = 0; attempt < delaysMs.Length; attempt++)
+        {
+            if (delaysMs[attempt] > 0)
+            {
+                AppendLog($"Virtual port '{name}' creation attempt {attempt + 1}/{delaysMs.Length} (waiting {delaysMs[attempt]} ms for WMS to settle)…");
+                await Task.Delay(delaysMs[attempt]).ConfigureAwait(true);
+            }
+
+            var ep = new WmsVirtualHostEndpoint(name);
+            ep.Log += s => AppendLog($"[virtual] {s}");
+            bool opened = await Task.Run(() => ep.Open()).ConfigureAwait(true);
+            if (opened)
+            {
+                _virtualEndpoint = ep;
+                return;
+            }
+            // Open() already logged the specific failure cause; dispose the
+            // half-built endpoint off the UI thread too — Dispose can also
+            // make synchronous WMS calls.
+            await Task.Run(() => { try { ep.Dispose(); } catch { } }).ConfigureAwait(true);
+        }
+
+        AppendLog($"Could not create virtual MIDI port '{name}' after {delaysMs.Length} attempts. " +
+                  "Restarting the app usually clears this — see the activity log for the underlying WMS error.");
+    }
+
+    /// <summary>
+    /// Dispose the long-lived virtual endpoint if any. Called when leaving
+    /// Virtual mode, when re-creating under a new name, and on app exit.
+    /// Run off the UI thread because WMS dispose / DisconnectEndpointConnection
+    /// can also be synchronous and slow.
+    /// </summary>
+    private async Task CloseVirtualEndpointAsync()
+    {
+        var ep = _virtualEndpoint;
+        if (ep is null) return;
+        _virtualEndpoint = null;
+        await Task.Run(() => { try { ep.Dispose(); } catch { } }).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Synchronous best-effort dispose for shutdown paths
+    /// (<see cref="QuitApplicationAsync"/>) that don't await per-step.
+    /// Fires Dispose on the thread pool and doesn't wait — the OS will
+    /// reclaim WMS handles when the process exits anyway.
+    /// </summary>
+    private void CloseVirtualEndpoint()
+    {
+        var ep = _virtualEndpoint;
+        if (ep is null) return;
+        _virtualEndpoint = null;
+        _ = Task.Run(() => { try { ep.Dispose(); } catch { } });
     }
 
     // ===================================================================
@@ -1024,6 +1257,28 @@ public partial class MainWindow : Window
         string.Join(":", BitConverter.GetBytes(a).Take(6).Reverse().Select(b => b.ToString("X2")));
 
     // ===================================================================
+    //  Auto-reconnect at launch
+    // ===================================================================
+
+    /// <summary>
+    /// If the user has the "Auto-scan and reconnect at launch" checkbox
+    /// ticked AND we have a recorded last-connected MAC, kick off a scan
+    /// pre-armed to connect to that device when it advertises. If the
+    /// device isn't seen within the scan window the timer clears the
+    /// pending target and the user falls back to the manual flow.
+    /// </summary>
+    private void TryAutoReconnect()
+    {
+        var prefs = AppSettingsStore.Load();
+        if (!prefs.AutoReconnectOnLaunch) return;
+        if (!DeviceSettingsStore.TryParseMac(prefs.LastConnectedMac, out ulong addr)) return;
+
+        AppendLog($"Auto-reconnect: scanning for last device {prefs.LastConnectedMac}…");
+        _autoConnectAddr = addr;
+        SafeRun(StartScan);
+    }
+
+    // ===================================================================
     //  Backend selection (virtual-device vs legacy loopback)
     // ===================================================================
 
@@ -1032,38 +1287,49 @@ public partial class MainWindow : Window
     /// for the WMS App SDK runtime, and pick a backend. Sets
     /// <see cref="_activeBackend"/> and toggles the right card-1 panel.
     /// Called once on first open. Switching after that goes through
-    /// <see cref="SwitchBackend"/>.
+    /// <see cref="SwitchBackendAsync"/>.
     /// </summary>
-    private void DetectAndApplyBackend()
+    /// <remarks>
+    /// All WMS calls (SDK init + virtual-device open) are forced to a
+    /// background thread so they don't block the UI thread — they can each
+    /// take several seconds, especially the first time after a previous
+    /// process exited (the WMS service needs a moment to clean up the
+    /// prior endpoint registration before a new one with the same name
+    /// can be registered). We probe the SDK runtime regardless of the
+    /// saved preference (even when pinned to "Loopback"), because the
+    /// affordance we show inside the loopback panel depends on whether
+    /// the SDK is actually available.
+    /// </remarks>
+    private async Task DetectAndApplyBackendAsync()
     {
         var prefs = AppSettingsStore.Load();
         string preferred = prefs.HostBackend ?? "Auto";
+
+        // Heavy: WMS SDK runtime initialisation. First call loads the
+        // runtime DLLs and brings the service into a working state — can
+        // take 100ms-2s. Move off UI thread.
+        bool wmsAvailable = await Task.Run(() => WmsRuntime.EnsureInitialized(AppendLog))
+                                      .ConfigureAwait(true);
 
         if (preferred == "Loopback")
         {
             _activeBackend = "Loopback";
         }
+        else if (preferred == "Virtual" && !wmsAvailable)
+        {
+            AppendLog("Backend pinned to 'Virtual' but the WMS App SDK runtime is not available. " +
+                      $"Reason: {WmsRuntime.FailureReason}. " +
+                      "Falling back to the legacy loopback path for this session.");
+            _activeBackend = "Loopback";
+        }
         else
         {
-            // Both "Auto" and "Virtual" want to try the SDK. The probe is
-            // cheap on success (cached) and on failure (cached too).
-            bool wmsAvailable = WmsRuntime.EnsureInitialized(AppendLog);
-            if (preferred == "Virtual" && !wmsAvailable)
+            _activeBackend = wmsAvailable ? "Virtual" : "Loopback";
+            if (!wmsAvailable && preferred == "Auto")
             {
-                AppendLog("Backend pinned to 'Virtual' but the WMS App SDK runtime is not available. " +
-                          $"Reason: {WmsRuntime.FailureReason}. " +
-                          "Falling back to the legacy loopback path for this session.");
-                _activeBackend = "Loopback";
-            }
-            else
-            {
-                _activeBackend = wmsAvailable ? "Virtual" : "Loopback";
-                if (!wmsAvailable && preferred == "Auto")
-                {
-                    AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
-                              "Install the WMS SDK Runtime from the Microsoft MIDI releases page to " +
-                              "let this app create its own MIDI port (no loopback setup needed).");
-                }
+                AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
+                          "Install the WMS SDK Runtime from the Microsoft MIDI releases page to " +
+                          "let this app create its own MIDI port (no loopback setup needed).");
             }
         }
 
@@ -1074,6 +1340,15 @@ public partial class MainWindow : Window
 
         ApplyBackendVisibility();
         AppendLog($"Active backend: {(_activeBackend == "Virtual" ? "WMS App SDK virtual device" : "WMS loopback (WinMM)")}.");
+
+        // Open or close the long-lived virtual endpoint to match the active
+        // backend. In Virtual mode this makes the port visible to DAWs
+        // immediately, before any BLE device is connected — which is the
+        // whole point of the WMS-virtual-device model.
+        if (_activeBackend == "Virtual")
+            await EnsureVirtualEndpointOpenAsync().ConfigureAwait(true);
+        else
+            await CloseVirtualEndpointAsync().ConfigureAwait(true);
     }
 
     private void ApplyBackendVisibility()
@@ -1081,32 +1356,107 @@ public partial class MainWindow : Window
         bool virtualMode = _activeBackend == "Virtual";
         _virtualPanel.IsVisible  = virtualMode;
         _loopbackPanel.IsVisible = !virtualMode;
+
+        // In the loopback panel, the secondary link's purpose flips based
+        // on whether the SDK runtime is actually installed on this machine:
+        //   - Installed → offer to switch backends (the path the user got
+        //                 stuck in if they had pinned Loopback).
+        //   - Missing   → offer the install link (browser).
+        bool sdkAvailable = WmsRuntime.IsAvailable;
+        _useVirtualInsteadBtn.IsVisible = !virtualMode && sdkAvailable;
+        _installSdkRuntimeBtn.IsVisible = !virtualMode && !sdkAvailable;
     }
 
-    private void SwitchBackend(string newBackend)
+    private async Task SwitchBackendAsync(string newBackend)
     {
         if (_activeBackend == newBackend) return;
-        if (_bridge.Running)
-        {
-            AppendLog("Disconnect first to switch backend (this would tear down the active host endpoint).");
-            return;
-        }
 
-        // Persist the new preference. We store the explicit backend rather
-        // than "Auto" so the user's switch is sticky across launches.
+        // Persist the new preference up front. We store the explicit
+        // backend rather than "Auto" so the user's switch is sticky.
         var settings = AppSettingsStore.Load();
         settings.HostBackend = newBackend;
         AppSettingsStore.Save(settings);
 
+        if (_bridge.Running)
+        {
+            // Active session — tear it down, swap backend, reconnect.
+            // (Previously this just logged a "disconnect first" line and
+            // refused, which made the link feel broken.)
+            await SwitchBackendAndReconnectAsync(newBackend).ConfigureAwait(true);
+            return;
+        }
+
         // Apply immediately. If the user switched into Virtual mode and the
-        // SDK isn't installed, DetectAndApplyBackend logs a clear message
-        // and falls back; we re-run that flow to surface that.
-        DetectAndApplyBackend();
+        // SDK isn't installed, DetectAndApplyBackendAsync logs a clear
+        // message and falls back; we re-run that flow to surface that.
+        await DetectAndApplyBackendAsync().ConfigureAwait(true);
 
         if (_activeBackend == "Loopback") RefreshVirtualPorts();
         else                              UpdateVirtualDawHint();
 
         AppendLog($"Switched backend to {newBackend}. (Saved.)");
+    }
+
+    /// <summary>
+    /// Swap backends while a BLE session is active: stop forwarding,
+    /// disconnect BLE, apply the new backend (may open/close the long-lived
+    /// virtual endpoint), then reconnect to the same device and re-attach
+    /// the bridge. Mirror of <see cref="ApplyVirtualNameAndReconnectAsync"/>
+    /// for backend switches. If the new backend can't acquire a host
+    /// endpoint (e.g. switching to Loopback with no loopback selected),
+    /// the BLE link is left up so the on-screen keyboard still works and
+    /// the user can finish setup.
+    /// </summary>
+    private async Task SwitchBackendAndReconnectAsync(string newBackend)
+    {
+        if (_connectInFlight) return;
+        _connectInFlight = true;
+        _autoConnectAddr = 0;
+        try
+        {
+            ulong addr = _ble.CurrentAddress;
+            AppendLog($"Switching backend to {newBackend} — disconnecting and reconnecting…");
+
+            _bridge.Stop();
+            ReleaseBridgeEndpoint();
+            try { await _ble.DisconnectAsync(); }
+            catch (Exception ex) { AppendLog($"Disconnect during backend switch: {ex.Message}"); }
+
+            await DetectAndApplyBackendAsync().ConfigureAwait(true);
+            if (_activeBackend == "Loopback") RefreshVirtualPorts();
+            else                              UpdateVirtualDawHint();
+
+            if (addr == 0)
+            {
+                AppendLog($"Switched backend to {newBackend}. (No previous BLE address to reconnect to.)");
+                return;
+            }
+
+            bool ok;
+            try { ok = await _ble.ConnectAsync(addr); }
+            catch (Exception ex) { AppendLog($"Reconnect after backend switch: {ex.Message}"); ok = false; }
+            if (!ok)
+            {
+                AppendLog("Reconnect after backend switch failed — try Scan and Connect manually.");
+                return;
+            }
+
+            bool haveEndpoint = await AcquireBridgeEndpointAsync().ConfigureAwait(true);
+            if (!haveEndpoint)
+            {
+                AppendLog("Backend switched, BLE reconnected, but no host endpoint is available. " +
+                          "Use the on-screen keyboard, or pick / install whatever the new backend needs.");
+                return;
+            }
+
+            if (!_bridge.Start(_bridgeEndpoint!))
+            {
+                AppendLog("Bridge failed to re-attach after backend switch.");
+                return;
+            }
+            AppendLog($"Bridging via {(_activeBackend == "Virtual" ? "virtual port" : "loopback endpoint")} '{_bridgeEndpoint!.DisplayName}'.");
+        }
+        finally { _connectInFlight = false; }
     }
 
     private void SaveVirtualPortName()
@@ -1119,21 +1469,124 @@ public partial class MainWindow : Window
             return;
         }
         var s = AppSettingsStore.Load();
-        if (s.VirtualPortName == name) return;
-        s.VirtualPortName = name;
-        AppSettingsStore.Save(s);
+        bool nameChanged = s.VirtualPortName != name;
+        if (nameChanged)
+        {
+            s.VirtualPortName = name;
+            AppSettingsStore.Save(s);
+        }
         UpdateVirtualDawHint();
-        AppendLog($"Virtual port name saved as '{name}'. " +
-                  (_bridge.Running
-                    ? "Disconnect/reconnect the BLE device to apply the new name."
-                    : "Will be used on the next BLE connect."));
+
+        // If we're in Virtual mode and the long-lived endpoint is open under
+        // a different name, recreate it now so the DAW sees the new name
+        // immediately. If a BLE session is in flight, take the BLE link down
+        // first, swap the endpoint, and reconnect to the same device — the
+        // user otherwise gets a port that they can't actually drive until
+        // they manually disconnect.
+        if (_activeBackend == "Virtual" && nameChanged)
+        {
+            if (_bridge.Running)
+            {
+                AppendLog($"Virtual port name saved as '{name}'. Reconnecting BLE so the new name takes effect…");
+                _ = ApplyVirtualNameAndReconnectAsync();
+            }
+            else
+            {
+                _ = RecreateVirtualEndpointAsync();
+            }
+        }
+        else if (nameChanged)
+        {
+            AppendLog($"Virtual port name saved as '{name}'.");
+        }
     }
+
+    /// <summary>Async dispose-then-open of the long-lived virtual endpoint.</summary>
+    private async Task RecreateVirtualEndpointAsync()
+    {
+        await CloseVirtualEndpointAsync().ConfigureAwait(true);
+        await EnsureVirtualEndpointOpenAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Tear the bridge down, reopen the virtual endpoint under the new name,
+    /// and reconnect the BLE device. Triggered by Apply when the user
+    /// changes the virtual port name while a session is live. The user
+    /// keeps a working bridge with the new name without having to click
+    /// Disconnect / Connect manually.
+    /// </summary>
+    private async Task ApplyVirtualNameAndReconnectAsync()
+    {
+        // Re-entry guard so a stray Connect-button click during the
+        // reconnect window doesn't double-enter the BLE flow.
+        if (_connectInFlight) return;
+        _connectInFlight = true;
+        _autoConnectAddr = 0;
+        try
+        {
+            ulong addr = _ble.CurrentAddress;
+            if (addr == 0)
+            {
+                // Race: bridge was running when SaveVirtualPortName checked,
+                // but the BLE link dropped before we got here. Just recreate
+                // the endpoint and bail.
+                _bridge.Stop();
+                ReleaseBridgeEndpoint();
+                await RecreateVirtualEndpointAsync().ConfigureAwait(true);
+                return;
+            }
+
+            // Tear down forwarding and BLE.
+            _bridge.Stop();
+            ReleaseBridgeEndpoint();
+            try { await _ble.DisconnectAsync(); } catch (Exception ex) { AppendLog($"Disconnect during rename: {ex.Message}"); }
+
+            // Swap the long-lived virtual endpoint.
+            await RecreateVirtualEndpointAsync().ConfigureAwait(true);
+            if (_virtualEndpoint is null)
+            {
+                AppendLog("Could not recreate virtual endpoint — please scan and reconnect manually.");
+                return;
+            }
+
+            // Reconnect BLE to the same device. Same retry semantics as a
+            // normal Connect — BleMidiClient handles the pairing dance.
+            bool ok;
+            try { ok = await _ble.ConnectAsync(addr); }
+            catch (Exception ex) { AppendLog($"Reconnect after rename failed: {ex.Message}"); ok = false; }
+            if (!ok)
+            {
+                AppendLog("Reconnect after rename failed — try Scan and Connect manually.");
+                return;
+            }
+
+            // Re-attach the bridge to the new endpoint.
+            _bridgeEndpoint = _virtualEndpoint;
+            _bridgeOwnsEndpoint = false;
+            if (!_bridge.Start(_bridgeEndpoint))
+            {
+                AppendLog("Bridge failed to re-attach after rename; the BLE link is up but apps won't see the port.");
+                return;
+            }
+            AppendLog($"Reconnected. Apps should now see the port as '{_virtualEndpoint.DisplayName}' (a tab refresh / DAW restart may be needed).");
+        }
+        finally { _connectInFlight = false; }
+    }
+
+    /// <summary>Static reminder appended to both DAW hints — most hosts only
+    /// enumerate MIDI ports at their own startup, so an endpoint that
+    /// appears later won't show up until the host is restarted (or, for
+    /// Web MIDI sites, the page is refreshed).</summary>
+    private const string RestartHostHint =
+        "If it doesn't show up yet, restart the DAW (or refresh the browser tab) — most apps enumerate MIDI ports only at startup.";
 
     private void UpdateVirtualDawHint()
     {
         string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(name)) name = "BT-MIDI Bridge";
-        _virtualDawHint.Text = $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output.";
+        _virtualDawHint.Text =
+            $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output. " +
+            RestartHostHint;
     }
 
     private static void OpenInBrowser(string url)

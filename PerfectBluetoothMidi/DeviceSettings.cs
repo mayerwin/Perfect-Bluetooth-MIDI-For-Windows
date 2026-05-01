@@ -69,6 +69,32 @@ internal static class DeviceSettingsStore
             bytes[5], bytes[4], bytes[3], bytes[2], bytes[1], bytes[0]);
     }
 
+    /// <summary>
+    /// Inverse of <see cref="FormatMac"/>. Accepts colon-, dash-, or no-
+    /// separator hex MAC strings (case-insensitive). Returns false on any
+    /// parse failure or zero address (treated as "not set"). The
+    /// AutoReconnect flow uses this on <see cref="AppSettings.LastConnectedMac"/>.
+    /// </summary>
+    public static bool TryParseMac(string? s, out ulong addr)
+    {
+        addr = 0;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        string cleaned = s.Replace(":", "").Replace("-", "").Trim();
+        if (cleaned.Length != 12) return false;
+        ulong result = 0;
+        for (int i = 0; i < 12; i += 2)
+        {
+            if (!byte.TryParse(cleaned.AsSpan(i, 2),
+                System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out byte b)) return false;
+            result = (result << 8) | b;
+        }
+        if (result == 0) return false;
+        addr = result;
+        return true;
+    }
+
     public static Dictionary<string, DeviceSetting> LoadAll()
     {
         lock (_lock)

@@ -172,6 +172,29 @@
       <Setter Property="Height" Value="10" />
     </Style>
 
+    <!-- Hyperlink-style button. Transparent surface, no border/padding, hand
+         cursor + underline-on-hover so it visually reads as something
+         clickable (the previous bare flat-text appearance was too easy to
+         miss as an actionable item). Foreground colour stays inline on the
+         consumer because we use both Accent and Muted variants depending
+         on whether the link is the "preferred" path or a fallback. -->
+    <Style Selector="Button.link">
+      <Setter Property="Background"      Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding"         Value="0" />
+      <Setter Property="Cursor"          Value="Hand" />
+    </Style>
+    <Style Selector="Button.link /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Button.link:pointerover /template/ ContentPresenter">
+      <Setter Property="Background"               Value="Transparent" />
+      <Setter Property="TextBlock.TextDecorations" Value="Underline" />
+    </Style>
+    <Style Selector="Button.link:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+
     <!-- The monospaced activity log. -->
     <Style Selector="TextBox.log">
       <Setter Property="FontFamily"        Value="Consolas,Menlo,monospace" />

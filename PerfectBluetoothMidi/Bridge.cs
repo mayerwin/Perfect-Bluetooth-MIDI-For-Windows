@@ -12,6 +12,14 @@ namespace PerfectBluetoothMidi;
 ///                                                   endpoint as INPUT
 ///   apps that wrote to the endpoint --> BLE device
 ///
+/// Lifetime: the bridge does NOT own the host endpoint's open/close
+/// lifecycle. <see cref="Start"/> assumes the caller has already opened the
+/// endpoint, and <see cref="Stop"/> simply unsubscribes events without
+/// closing the endpoint. This lets the WMS-virtual-device path keep the
+/// endpoint visible to DAWs across BLE connect/disconnect cycles, while
+/// the legacy WinMM-loopback path can still scope the endpoint to a single
+/// connect (the caller disposes it when appropriate).
+///
 /// Forwarding is best-effort: a single malformed MIDI message or transient
 /// I/O error must never tear down the bridge.
 /// </summary>
@@ -33,10 +41,10 @@ internal sealed class Bridge : IDisposable
     }
 
     /// <summary>
-    /// Attach a host-side endpoint and start forwarding. The bridge takes
-    /// ownership of the endpoint's lifetime: <see cref="Stop"/> disposes it.
-    /// Returns true on success; on failure the endpoint is disposed and the
-    /// bridge stays in the not-running state.
+    /// Attach forwarding to a pre-opened host endpoint. The bridge does NOT
+    /// open the endpoint and does NOT take ownership of its lifecycle —
+    /// <see cref="Stop"/> only unsubscribes events. The caller is responsible
+    /// for <see cref="IHostMidiEndpoint.Open"/> / <see cref="IDisposable.Dispose"/>.
     /// </summary>
     public bool Start(IHostMidiEndpoint host)
     {
@@ -47,31 +55,27 @@ internal sealed class Bridge : IDisposable
         }
 
         _host = host;
-        host.Log         += s => Log?.Invoke($"[host] {s}");
         host.MidiReceived += OnMidiFromApps;
-
-        if (!host.Open())
-        {
-            Log?.Invoke($"Failed to open host endpoint '{host.DisplayName}'.");
-            try { host.Dispose(); } catch { }
-            _host = null;
-            return false;
-        }
         Running = true;
-        Log?.Invoke($"Bridge started on host endpoint '{host.DisplayName}'.");
+        Log?.Invoke($"Bridge forwarding via host endpoint '{host.DisplayName}'.");
         return true;
     }
 
+    /// <summary>
+    /// Stop forwarding. Only unsubscribes events — does not close or dispose
+    /// the host endpoint (caller manages that).
+    /// </summary>
     public void Stop()
     {
         if (!Running) return;
-        try { _host?.Close(); }
-        catch (Exception ex) { Log?.Invoke($"Close host: {ex.Message}"); }
-        try { _host?.Dispose(); }
-        catch (Exception ex) { Log?.Invoke($"Dispose host: {ex.Message}"); }
+        if (_host is not null)
+        {
+            try { _host.MidiReceived -= OnMidiFromApps; }
+            catch (Exception ex) { Log?.Invoke($"Detach host: {ex.Message}"); }
+        }
         _host = null;
         Running = false;
-        Log?.Invoke("Bridge stopped.");
+        Log?.Invoke("Bridge forwarding stopped.");
     }
 
     private void OnMidiFromBle(byte[] midi)

@@ -310,7 +310,7 @@
     </div>
 
     <div class="screenshot">
-      <img src="screenshots/main-window.png" alt="Perfect Bluetooth MIDI For Windows — main window with loopback endpoint picker, BLE scan/connect, TX channel selector, on-screen piano, and activity log.">
+      <img src="screenshots/main-window.png" alt="Perfect Bluetooth MIDI For Windows — main window with virtual MIDI port name field, BLE scan/connect with auto-reconnect, TX channel selector, on-screen piano, and activity log.">
     </div>
   </div>
 </section>
@@ -328,7 +328,12 @@
     <div class="features">
       <div class="feature">
         <h3><span class="icon">⇄</span>Zero-setup virtual port</h3>
-        <p>If you have the WMS App SDK Runtime installed, the app declares its own MIDI port on demand — no loopback to create, no MIDI Settings dance. Just type a name. Falls back automatically to the classic loopback flow when the SDK Runtime isn't installed.</p>
+        <p>If you have the WMS App SDK Runtime installed, the app declares its own MIDI port on demand — no loopback to create, no MIDI Settings dance. Just type a name. Falls back automatically to the classic loopback flow when the SDK Runtime isn't installed; switch backends in-app at any time, and the BLE link rides through the swap.</p>
+      </div>
+
+      <div class="feature">
+        <h3><span class="icon">↻</span>Auto-scan and reconnect</h3>
+        <p>Quit the app while connected and the next launch finds your last device and reconnects on its own as soon as it advertises. Off-by-one click if you'd rather always pick manually.</p>
       </div>
 
       <div class="feature">
@@ -352,8 +357,8 @@
       </div>
 
       <div class="feature">
-        <h3><span class="icon">🧹</span>Clean quit</h3>
-        <p>Exit unpairs the device so your phone / another PC can take it over, instead of leaving Windows stuck bonded to the keyboard. Tray mode is explicit — the <code>X</code> button actually exits.</p>
+        <h3><span class="icon">🧹</span>Clean quit + tray</h3>
+        <p>Exit unpairs the device so your phone / another PC can take it over, instead of leaving Windows stuck bonded to the keyboard. Hide-to-tray keeps the bridge running in the background; the <code>X</code> button actually exits. Light / dark / system theme picker in the header.</p>
       </div>
     </div>
 
@@ -403,15 +408,22 @@
       <div class="step">
         <div>
           <h3>Scan, connect, (optional) detect channel</h3>
-          <p>Put your BLE-MIDI device into advertising mode, click <strong>Scan</strong>, pick it from the list, click <strong>Connect</strong>. If nothing sounds when you press keys: click <strong>Detect…</strong> next to the TX channel dropdown and pick the channel with the audible burst.</p>
+          <p>Put your BLE-MIDI device into advertising mode, click <strong>Scan</strong>, pick it from the list, click <strong>Connect</strong>. If nothing sounds when you press keys: click <strong>Detect…</strong> next to the TX channel dropdown and pick the channel with the audible burst. The <strong>Auto-scan and reconnect at launch</strong> checkbox in card 2 is on by default — next time you open the app it'll find your last device and reconnect automatically.</p>
         </div>
       </div>
     </div>
 
     <div class="highlight" style="margin-top:28px;">
+      <h3>Restart your DAW (or refresh the browser tab) the first time <span class="badge">tip</span></h3>
+      <p>
+        Most MIDI hosts — DAWs, Chrome's Web MIDI backend, MIDI-OX — enumerate available ports <em>once at startup</em>. A port that appears <em>after</em> the host launched won't show up until you restart it (or refresh the browser tab for Web MIDI sites). After you've done that once, leave this app running and the port stays visible across normal connect / disconnect cycles.
+      </p>
+    </div>
+
+    <div class="highlight" style="margin-top:28px;">
       <h3>Try it with <a href="https://app.midiano.com/" target="_blank" rel="noopener">Midiano</a> <span class="badge">tip</span></h3>
       <p>
-        <a href="https://app.midiano.com/" target="_blank" rel="noopener">app.midiano.com</a> is a beautiful Chrome Web MIDI app with a nice catalogue of songs that play themselves on your piano. Open it in Chrome / Edge, pick the port name shown in the app's card 1 hint as the MIDI output, and hit play on any song — your keyboard plays it.
+        <a href="https://app.midiano.com/" target="_blank" rel="noopener">app.midiano.com</a> is a beautiful Chrome Web MIDI app with a nice catalog of songs that play themselves on your piano. Open it in Chrome / Edge, pick the port name shown in the app's card 1 hint as the MIDI output, and hit play on any song — your keyboard plays it.
       </p>
     </div>
   </div>

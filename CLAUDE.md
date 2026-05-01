@@ -129,14 +129,38 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   packets, fragmented across multiple UMP messages). Other UMP types are
   ignored on receive — we declare the device as MIDI 1.0 protocol only,
   so the service should not deliver MIDI 2.0 channel voice (type 0x4) etc.
+- **Endpoint lifetime / ownership**: the bridge does NOT own the host
+  endpoint's lifecycle. `Bridge.Start(host)` assumes the caller has
+  already opened the endpoint and only attaches `MidiReceived` forwarding;
+  `Bridge.Stop()` only detaches. `MainWindow` owns Open/Close/Dispose:
+    - **Virtual mode**: `_virtualEndpoint` is created in
+      `EnsureVirtualEndpointOpen` when entering Virtual mode (so DAWs see
+      the port immediately, *before* any BLE device is connected — the
+      whole pitch of the WMS-virtual-device model). Disposed on Quit, on
+      `SwitchBackend("Loopback")`, and during Apply when the name changes.
+    - **Loopback mode**: a fresh `WinMMHostEndpoint` is created+opened in
+      `AcquireBridgeEndpoint` per BLE connect and disposed via
+      `ReleaseBridgeEndpoint` on disconnect.
+  `_bridgeOwnsEndpoint` records whether the disconnect path should
+  dispose: `true` for Loopback, `false` for Virtual. Don't reverse the
+  ownership semantics — disposing the long-lived virtual endpoint on
+  disconnect would make the port disappear from DAWs every time the user
+  toggles Connect, which was the whole bug we just fixed.
 - **Backend switching**: `AppSettings.HostBackend` is "Auto" (default),
   "Virtual", or "Loopback". `MainWindow.DetectAndApplyBackend` runs once at
-  startup. The user can flip Virtual → Loopback via the
-  "Use a classic loopback endpoint instead…" link in card 1 (calls
-  `SwitchBackend("Loopback")`). To go back to virtual mode they restart the
-  app or edit `app.json` directly — we don't surface a switch-to-virtual
-  link from the loopback panel because if the runtime isn't installed we
-  can't actually do it.
+  startup and ALWAYS probes `WmsRuntime.EnsureInitialized` (even when
+  pinned to Loopback) so the loopback panel can show the right secondary
+  link. The link logic in `ApplyBackendVisibility`:
+    - In virtual mode: "Use a classic loopback endpoint instead…" →
+      `SwitchBackend("Loopback")`.
+    - In loopback mode AND SDK runtime IS installed: "Use a virtual MIDI
+      port instead…" → `SwitchBackend("Virtual")`. This is the way back
+      from a pinned-Loopback state.
+    - In loopback mode AND SDK runtime is NOT installed: "Install the WMS
+      App SDK Runtime…" → opens the GitHub releases page in the browser.
+  The bridge must be stopped (BLE disconnected) before a switch is
+  accepted — `SwitchBackend` refuses otherwise to avoid tearing down the
+  active host endpoint.
 
 ## Coding conventions
 

@@ -26,9 +26,15 @@ namespace PerfectBluetoothMidi;
 ///                                       download from Microsoft's MIDI
 ///                                       releases page).
 ///
-/// Lifetime model:
-///   - Open() is called once when the user starts the bridge.
-///   - Close() is called when the user stops the bridge or quits the app.
+/// Lifetime model: the *caller* (typically <see cref="MainWindow"/>) owns
+/// the endpoint's open/close lifecycle, NOT the bridge. The bridge attaches
+/// and detaches forwarding via Start/Stop without touching Open/Close.
+///   - Open() acquires resources. WinMM endpoints are opened once per BLE
+///     connect (and disposed on disconnect). Virtual endpoints are opened
+///     when entering Virtual mode and stay open across BLE connect/disconnect
+///     cycles, so DAWs keep seeing the port.
+///   - Close() / Dispose() release resources. After Close(), Send() is a
+///     no-op and MidiReceived stops firing.
 ///   - Send() may be called from any thread; implementations serialize
 ///     internally where needed.
 ///   - MidiReceived fires on whatever thread the underlying API uses; the

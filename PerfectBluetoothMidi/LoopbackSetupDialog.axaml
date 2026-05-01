@@ -76,11 +76,9 @@
                      LineHeight="17"
                      Text="Don't have the midi command? You need Windows MIDI Services. It ships with recent Windows 11 updates; if missing, install it from the Microsoft MIDI releases page."/>
           <Button x:Name="DocsBtn"
+                  Classes="link"
                   Content="Open Microsoft MIDI releases…"
-                  Background="Transparent"
                   Foreground="{DynamicResource AccentBrush}"
-                  BorderThickness="0"
-                  Padding="0"
                   HorizontalAlignment="Left"/>
         </StackPanel>
       </Border>

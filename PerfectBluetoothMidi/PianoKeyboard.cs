@@ -82,7 +82,10 @@ internal sealed class PianoKeyboard : Control
     public PianoKeyboard()
     {
         Focusable = true;
-        MinHeight = 140;
+        // Compact MinHeight: keyboard at this size still shows playable
+        // white keys + readable PC-key hints + small black keys. Larger
+        // screens get the XAML Height value; smaller ones can shrink down.
+        MinHeight = 80;
         MinWidth  = 280;
     }
 
@@ -119,9 +122,17 @@ internal sealed class PianoKeyboard : Control
     {
         const int whiteCount = 7;
         double w = Math.Max(36, Bounds.Width / whiteCount);
-        double h = Math.Max(120, Bounds.Height - 6);
+        // White-key visible height. Allow the keyboard to compress further
+        // than the previous 120px floor so the activity log gets space at
+        // smaller window heights — 72px is still enough for the PC-key
+        // hint + note-name labels at the bottom of each white key.
+        double h = Math.Max(72, Bounds.Height - 6);
         double bw = w * 0.60;
-        double bh = h * 0.62;
+        // Black keys reduced to ~37% of white-key height (was 0.62, dropped
+        // ~40% per a UX request). Single-character black-key labels still
+        // fit, and the shorter black keys make the whole keyboard read as
+        // a more compact diagnostic widget rather than a piano you'd play.
+        double bh = h * 0.37;
         double sx = (Bounds.Width - whiteCount * w) / 2.0;
         return new Layout(w, h, bw, bh, sx, 3);
     }

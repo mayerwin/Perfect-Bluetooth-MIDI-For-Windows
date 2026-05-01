@@ -5,7 +5,7 @@ using Web MIDI, like [Midiano](https://app.midiano.com/) —
 talk to a **Bluetooth LE MIDI** device (Roland FP-90X, WIDI Master, CME,
 Yamaha MD-BT01, …) as if it were a normal wired MIDI device.
 
-![Perfect Bluetooth MIDI For Windows — main window](docs/screenshots/main-window.png)
+![Perfect Bluetooth MIDI For Windows — main window with virtual MIDI port name field, BLE scan/connect with auto-reconnect, TX channel selector, on-screen piano, and activity log](docs/screenshots/main-window.png)
 
 ## Why this exists
 
@@ -42,9 +42,15 @@ The bridge picks one of two host-side surfaces automatically:
 - **Zero-setup virtual port** when the WMS App SDK Runtime is installed —
   no MIDI Settings dance, no `midi loopback create`. Just type a name
   ("BT-MIDI Bridge" by default), and your DAW sees a port with that name
-  for as long as this app is running.
+  for as long as this app is running. Edit the name and click **Apply**
+  while connected — the app disconnects, renames, and reconnects on its
+  own; you don't lose the BLE link.
 - **Auto-fallback** to the legacy loopback flow if the SDK Runtime isn't
-  present. The full original setup UX is preserved end to end.
+  present. Switch between backends in-app at any time (the link in card 1
+  takes care of the disconnect / reconnect cycle for you).
+- **Auto-scan and reconnect at launch** (on by default). Quit the app
+  while connected and the next launch picks the same device back up as
+  soon as it advertises — no clicks needed.
 - **Per-device TX channel selector** + auto-detector. Some BLE-MIDI devices
   (Roland FP-90X observed) silently receive on a channel that's *different*
   from their visible "Transmit Channel" setting. Click **Detect…** and the
@@ -59,7 +65,9 @@ The bridge picks one of two host-side surfaces automatically:
 - **Verbose BLE/MIDI diagnostics** at the flick of a checkbox — status-byte
   names + hex dumps for every message in both directions, including on-connect
   GATT service/characteristic enumeration.
-- **Clean quit**: unpairs the device on exit so it's released for other
+- **Light / dark / system theme** picker in the header.
+- **Hide-to-tray** keeps the bridge running in the background. Closing the
+  window cleanly unpairs the device on exit so it's released for other
   hosts (phone apps, another PC) rather than stuck bonded to Windows.
 
 ## Download
@@ -155,12 +163,38 @@ launch when no loopback exists.)
 6. In your DAW / Web MIDI site, open the port by the name you chose as
    BOTH input and output. (The card 1 hint shows the exact name.)
 
+> **Tip — restart your DAW or browser tab if you don't see the port yet.**
+> Most MIDI hosts enumerate available ports once at startup, so a port
+> that appears *after* the host launched won't show up until you restart
+> it (or refresh the browser tab for Web MIDI sites). After you've done
+> that once, leave this app running and the port stays visible across
+> normal connect/disconnect cycles.
+
 ### With the classic-loopback backend (fallback)
 
 Same steps, but in step 2 you pick the loopback endpoint from a dropdown
 instead of typing a name. In step 6 the DAW picks the *opposite* side of
 the pair (UMP pair: `BT-MIDI Bridge (B)` if the app picked `(A)`; BLOOP:
-the same name as the app picked).
+the same name as the app picked). Same restart-the-DAW caveat applies
+the first time you set it up.
+
+### Auto-reconnect at launch
+
+Section 2 has an **Auto-scan and reconnect at launch** checkbox (on by
+default). When ticked, the next time you open the app it scans for the
+last device you connected to and reconnects automatically as soon as it
+sees an advertisement. If the device isn't powered on or in range, the
+scan times out silently and you can use the normal manual flow. Untick
+the box if you'd rather always pick the device manually.
+
+### Switching backends without dropping the BLE link
+
+Card 1 shows a *"Use a classic loopback endpoint instead…"* link in
+virtual mode (or *"Use a virtual MIDI port instead…"* in loopback mode,
+when the SDK Runtime is detected). Clicking it does the full disconnect
+→ swap → reconnect cycle for you — your BLE device stays paired and the
+session resumes on the new backend. Same thing happens when you change
+the virtual port name and click **Apply** while connected.
 
 Closing the window exits the app. Click **Hide to tray** if you want the
 bridge to keep running in the background — bring the window back (or exit
@@ -169,7 +203,7 @@ properly) from the tray icon's right-click menu.
 ## A great way to try it out
 
 [**Midiano**](https://app.midiano.com/) is a beautiful Chrome Web MIDI app
-with a nice catalogue of songs that play themselves on your
+with a nice catalog of songs that play themselves on your
 piano through the bridge. Open it, pick the opposite-side loopback
 endpoint (see the "DAW should use" hint in the app's card 1) as the MIDI
 output, and hit play on any song — your piano plays it.
