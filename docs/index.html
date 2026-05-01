@@ -327,8 +327,8 @@
 
     <div class="features">
       <div class="feature">
-        <h3><span class="icon">⇄</span>Windows MIDI Services loopback</h3>
-        <p>Piggybacks on the new WMS stack. Works with both MIDI 2.0 UMP loopback pairs and the MIDI 1.0 "BLOOP" basic loopback. Apps see the bridge as a normal virtual MIDI device.</p>
+        <h3><span class="icon">⇄</span>Zero-setup virtual port</h3>
+        <p>If you have the WMS App SDK Runtime installed, the app declares its own MIDI port on demand — no loopback to create, no MIDI Settings dance. Just type a name. Falls back automatically to the classic loopback flow when the SDK Runtime isn't installed.</p>
       </div>
 
       <div class="feature">
@@ -381,15 +381,8 @@
     <div class="steps">
       <div class="step">
         <div>
-          <h3>Install Windows MIDI Services</h3>
-          <p>WMS ships with recent Windows 11 updates. If <code>midi --version</code> fails in a terminal, install it from the <a href="https://github.com/microsoft/MIDI/releases">Microsoft MIDI releases page</a>. On first launch of the app, Windows will also prompt to download the .NET 10 Desktop Runtime if it isn't already installed — one click from the built-in dialog.</p>
-        </div>
-      </div>
-
-      <div class="step">
-        <div>
-          <h3>Create a loopback endpoint</h3>
-          <p>Open <strong>MIDI Settings</strong> from the Start menu → <strong>Create loopback pair</strong> → root name <code>BT-MIDI Bridge</code>. Or from a terminal: <code>midi loopback create --root-name "BT-MIDI Bridge"</code>.</p>
+          <h3>Install Windows MIDI Services <small>(in-box on Windows 11 24H2+)</small></h3>
+          <p>The WMS service itself ships with recent Windows 11 updates. <strong>Strongly recommended:</strong> also install the <a href="https://github.com/microsoft/MIDI/releases">Windows MIDI Services SDK Runtime and Tools</a> — once it's installed, this app skips the loopback step and creates its own MIDI port on demand. On first launch of the app, Windows will also prompt to download the .NET 10 Desktop Runtime if it isn't already installed.</p>
         </div>
       </div>
 
@@ -397,6 +390,13 @@
         <div>
           <h3>Download and run the app</h3>
           <p><a href="https://github.com/mayerwin/Perfect-Bluetooth-MIDI-For-Windows/releases/latest">Grab <code>PerfectBluetoothMidi.exe</code> from Releases</a>. Single ~21 MB file — put it anywhere and double-click. No installer.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div>
+          <h3>Choose your port name <small>(or pick a loopback if you skipped the SDK Runtime)</small></h3>
+          <p>Card 1 shows either a <strong>Virtual MIDI port</strong> name field (default <code>BT-MIDI Bridge</code>) or a loopback dropdown. Type a name and click Apply, or pick an existing loopback. (If you took the loopback path: open <strong>MIDI Settings</strong> → <strong>Create loopback pair</strong> → root name <code>BT-MIDI Bridge</code>, or run <code>midi loopback create --root-name "BT-MIDI Bridge"</code>. The app will offer to do this automatically on first run.)</p>
         </div>
       </div>
 
@@ -411,7 +411,7 @@
     <div class="highlight" style="margin-top:28px;">
       <h3>Try it with <a href="https://app.midiano.com/" target="_blank" rel="noopener">Midiano</a> <span class="badge">tip</span></h3>
       <p>
-        <a href="https://app.midiano.com/" target="_blank" rel="noopener">app.midiano.com</a> is a beautiful Chrome Web MIDI app with a nice catalogue of songs that play themselves on your piano. Open it in Chrome / Edge, pick the opposite-side loopback endpoint (the app's card 1 tells you which name) as the MIDI output, and hit play on any song — your keyboard plays it.
+        <a href="https://app.midiano.com/" target="_blank" rel="noopener">app.midiano.com</a> is a beautiful Chrome Web MIDI app with a nice catalogue of songs that play themselves on your piano. Open it in Chrome / Edge, pick the port name shown in the app's card 1 hint as the MIDI output, and hit play on any song — your keyboard plays it.
       </p>
     </div>
   </div>

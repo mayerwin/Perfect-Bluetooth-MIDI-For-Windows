@@ -6,9 +6,9 @@ using System.Text.Json.Serialization;
 namespace PerfectBluetoothMidi;
 
 /// <summary>
-/// App-global settings (currently just the theme preference). Kept separate
-/// from <see cref="DeviceSetting"/> because that one is keyed by BLE MAC;
-/// these apply to the whole app.
+/// App-global settings — theme, host-endpoint backend choice, virtual port
+/// name. Kept separate from <see cref="DeviceSetting"/> because that one is
+/// keyed by BLE MAC; these apply to the whole app.
 ///
 /// Persists to %AppData%\PerfectBluetoothMidi\app.json. Corrupt/missing file
 /// → defaults returned; callers don't have to worry about exceptions.
@@ -17,6 +17,27 @@ public sealed class AppSettings
 {
     /// <summary>"System", "Light", or "Dark". Anything else falls back to "System".</summary>
     public string Theme { get; set; } = "System";
+
+    /// <summary>
+    /// Which host-side MIDI surface to use for the bridge:
+    ///   "Auto"     — prefer the WMS App SDK virtual-device path; fall back to
+    ///                WinMM loopback if the SDK runtime isn't installed.
+    ///   "Virtual"  — force the virtual-device path. Bridge fails to start if
+    ///                the SDK runtime is missing.
+    ///   "Loopback" — force the legacy WMS-loopback / WinMM path even when
+    ///                the SDK runtime is available (escape hatch for users
+    ///                who hit a virtual-device bug).
+    /// Anything else is treated as "Auto".
+    /// </summary>
+    public string HostBackend { get; set; } = "Auto";
+
+    /// <summary>
+    /// Endpoint name shown to other apps when running the virtual-device
+    /// backend. Pre-populated to a sensible default; the user can edit it.
+    /// Ignored entirely in the loopback path (the user picks an existing
+    /// loopback there).
+    /// </summary>
+    public string VirtualPortName { get; set; } = "BT-MIDI Bridge";
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]

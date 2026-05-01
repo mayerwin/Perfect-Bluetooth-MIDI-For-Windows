@@ -60,57 +60,118 @@
           ColumnDefinitions="*,16,*"
           Margin="0,0,0,14">
 
-      <!-- Card 1: Loopback endpoint -->
+      <!-- Card 1: Host MIDI endpoint. Two panels share this card; only one
+           is visible at a time, picked by the active backend (auto-detected
+           at startup based on whether the WMS App SDK runtime is installed). -->
       <Border Grid.Column="0" Classes="card">
-        <StackPanel Spacing="0">
-          <TextBlock Classes="sectionHead" Text="1  MIDI loopback endpoint"/>
-          <TextBlock Classes="sectionSub"
-                     Text="Any DAW or Chrome Web MIDI site (like Midiano) opens this as a virtual MIDI device."/>
+        <Grid>
 
-          <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
-            <ComboBox x:Name="PortCombo"
-                      Grid.Column="0"
-                      HorizontalAlignment="Stretch"
-                      MinHeight="32"/>
-            <Button x:Name="RefreshPortsBtn"
-                    Grid.Column="1"
-                    Margin="8,0,0,0"
-                    Content="Refresh"/>
-          </Grid>
+          <!-- Virtual-device panel: the modern path. Shown when the WMS App
+               SDK runtime is installed. The endpoint is created on-demand
+               with the user-supplied name; no pre-flight loopback setup. -->
+          <StackPanel x:Name="VirtualPanel" Spacing="0" IsVisible="False">
+            <TextBlock Classes="sectionHead" Text="1  Virtual MIDI port"/>
+            <TextBlock Classes="sectionSub"
+                       Text="Choose the name your DAW or Chrome Web MIDI site (like Midiano) will see. The port appears while this app runs."/>
 
-          <!-- Link rendered as a styled button (Avalonia has no LinkLabel).
-               Open browser in code-behind on click. -->
-          <Button x:Name="LoopbackHelpBtn"
-                  Content="How to create a loopback endpoint…"
-                  HorizontalAlignment="Left"
-                  Background="Transparent"
-                  Foreground="{DynamicResource AccentBrush}"
-                  Padding="0"
-                  BorderThickness="0"/>
+            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
+              <TextBox x:Name="VirtualPortNameBox"
+                       Grid.Column="0"
+                       MinHeight="32"
+                       VerticalContentAlignment="Center"/>
+              <Button x:Name="VirtualPortApplyBtn"
+                      Grid.Column="1"
+                      Margin="8,0,0,0"
+                      Content="Apply"
+                      ToolTip.Tip="Save the name. If the bridge is already running, restart it to apply."/>
+            </Grid>
 
-          <!-- Dynamic DAW-side hint: tells the user exactly which endpoint
-               name to open in their DAW / Web MIDI site, based on the A/B
-               side this app is using (UMP pair) or the single name (BLOOP).
-               Populated in MainWindow.axaml.cs → UpdateDawHint(). -->
-          <TextBlock x:Name="DawHint"
-                     TextWrapping="Wrap"
-                     FontSize="12"
-                     Foreground="{DynamicResource TextMutedBrush}"
-                     LineHeight="17"
-                     Margin="0,6,0,0"/>
+            <TextBlock x:Name="VirtualDawHint"
+                       TextWrapping="Wrap"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       LineHeight="17"
+                       Margin="0,6,0,0"/>
 
-          <!-- Recommended test site. Opens in the user's default browser via
-               the code-behind Click handler (no LinkLabel in Avalonia). -->
-          <Button x:Name="MidianoBtn"
-                  Content="Try it with Midiano — nice song catalogue…"
-                  HorizontalAlignment="Left"
-                  Background="Transparent"
-                  Foreground="{DynamicResource AccentBrush}"
-                  Padding="0"
-                  BorderThickness="0"
-                  Margin="0,8,0,0"
-                  ToolTip.Tip="Opens app.midiano.com in your browser. Pick the same loopback endpoint the DAW-side hint above tells you to."/>
-        </StackPanel>
+            <Button x:Name="VirtualMidianoBtn"
+                    Content="Try it with Midiano — nice song catalogue…"
+                    HorizontalAlignment="Left"
+                    Background="Transparent"
+                    Foreground="{DynamicResource AccentBrush}"
+                    Padding="0"
+                    BorderThickness="0"
+                    Margin="0,8,0,0"
+                    ToolTip.Tip="Opens app.midiano.com in your browser."/>
+
+            <Button x:Name="UseLoopbackInsteadBtn"
+                    Content="Use a classic loopback endpoint instead…"
+                    HorizontalAlignment="Left"
+                    Background="Transparent"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    Padding="0"
+                    BorderThickness="0"
+                    FontSize="11"
+                    Margin="0,12,0,0"
+                    ToolTip.Tip="Switch this app to the legacy WMS-loopback path (requires you to create a loopback in MIDI Settings first)."/>
+          </StackPanel>
+
+          <!-- Loopback panel: the legacy path. Shown when the WMS App SDK
+               runtime isn't installed, or when the user explicitly opted
+               into the loopback backend in app.json. -->
+          <StackPanel x:Name="LoopbackPanel" Spacing="0" IsVisible="False">
+            <TextBlock Classes="sectionHead" Text="1  MIDI loopback endpoint"/>
+            <TextBlock Classes="sectionSub"
+                       Text="Any DAW or Chrome Web MIDI site (like Midiano) opens this as a virtual MIDI device."/>
+
+            <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,8">
+              <ComboBox x:Name="PortCombo"
+                        Grid.Column="0"
+                        HorizontalAlignment="Stretch"
+                        MinHeight="32"/>
+              <Button x:Name="RefreshPortsBtn"
+                      Grid.Column="1"
+                      Margin="8,0,0,0"
+                      Content="Refresh"/>
+            </Grid>
+
+            <Button x:Name="LoopbackHelpBtn"
+                    Content="How to create a loopback endpoint…"
+                    HorizontalAlignment="Left"
+                    Background="Transparent"
+                    Foreground="{DynamicResource AccentBrush}"
+                    Padding="0"
+                    BorderThickness="0"/>
+
+            <TextBlock x:Name="DawHint"
+                       TextWrapping="Wrap"
+                       FontSize="12"
+                       Foreground="{DynamicResource TextMutedBrush}"
+                       LineHeight="17"
+                       Margin="0,6,0,0"/>
+
+            <Button x:Name="MidianoBtn"
+                    Content="Try it with Midiano — nice song catalogue…"
+                    HorizontalAlignment="Left"
+                    Background="Transparent"
+                    Foreground="{DynamicResource AccentBrush}"
+                    Padding="0"
+                    BorderThickness="0"
+                    Margin="0,8,0,0"
+                    ToolTip.Tip="Opens app.midiano.com in your browser. Pick the same loopback endpoint the DAW-side hint above tells you to."/>
+
+            <Button x:Name="InstallSdkRuntimeBtn"
+                    Content="Install the WMS App SDK Runtime to skip this step…"
+                    HorizontalAlignment="Left"
+                    Background="Transparent"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    Padding="0"
+                    BorderThickness="0"
+                    FontSize="11"
+                    Margin="0,12,0,0"
+                    ToolTip.Tip="Opens the Microsoft MIDI releases page. Once installed, this app will create a virtual port on its own — no loopback needed."/>
+          </StackPanel>
+
+        </Grid>
       </Border>
 
       <!-- Card 2: BLE device -->

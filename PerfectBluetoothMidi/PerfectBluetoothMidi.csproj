@@ -2,10 +2,15 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- net10.0-windows10.0.22621.0 gives us Windows 11 WinRT projections
-         (Windows.Devices.Bluetooth.*, Windows.Devices.Enumeration.*).
+    <!-- net10.0-windows10.0.26100.0 gives us Windows 11 24H2 WinRT projections
+         (Windows.Devices.Bluetooth.*, Windows.Devices.Enumeration.*) AND
+         matches the Windows SDK build the WMS App SDK (Microsoft.Windows.Devices.Midi2)
+         was compiled against. The Windows MIDI Services service ships in-box
+         starting with Windows 11 24H2, so the runtime constraint is the same
+         either way; we keep SupportedOSPlatformVersion at 10.0.19041.0 so the
+         classic-MIDI loopback fallback path still loads on older builds.
          .NET 10 is the current LTS (Nov 2025 / supported through Nov 2028). -->
-    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -52,6 +57,20 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.2.3" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.3" />
+
+    <!-- Windows MIDI Services App SDK. Lets us programmatically create a
+         virtual UMP endpoint that lives only while this app is running, so
+         users no longer have to pre-create a loopback in MIDI Settings.
+         This package is NOT on nuget.org — it's vendored from the GitHub
+         release as nuget-packages/Microsoft.Windows.Devices.Midi2.*.nupkg
+         (see NuGet.config and BUILD.bat for the local-feed wiring).
+
+         Runtime: requires the user to have installed the matching
+         "Windows MIDI Services SDK Runtime and Tools" .exe (also from the
+         GitHub release). The app uses MidiDesktopAppSdkInitializer at
+         startup to detect the runtime; if absent, it falls back to the
+         legacy WMS-loopback UX (which only needs the in-box service). -->
+    <PackageReference Include="Microsoft.Windows.Devices.Midi2" Version="1.0.17-rc.4.25" />
   </ItemGroup>
 
   <ItemGroup>

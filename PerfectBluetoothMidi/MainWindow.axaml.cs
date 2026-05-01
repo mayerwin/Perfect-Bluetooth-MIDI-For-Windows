@@ -38,9 +38,22 @@ namespace PerfectBluetoothMidi;
 public partial class MainWindow : Window
 {
     // ---- Controls (resolved from XAML on load) -------------------------
+    // Card 1 — virtual-device panel
+    private StackPanel _virtualPanel    = null!;
+    private TextBox   _virtualPortNameBox = null!;
+    private Button    _virtualPortApplyBtn = null!;
+    private TextBlock _virtualDawHint  = null!;
+    private Button    _virtualMidianoBtn = null!;
+    private Button    _useLoopbackInsteadBtn = null!;
+    // Card 1 — loopback panel
+    private StackPanel _loopbackPanel  = null!;
     private ComboBox  _portCombo       = null!;
     private Button    _refreshPortsBtn = null!;
     private Button    _loopbackHelpBtn = null!;
+    private TextBlock _dawHint         = null!;
+    private Button    _midianoBtn      = null!;
+    private Button    _installSdkRuntimeBtn = null!;
+    // Card 2 + the rest (unchanged from before the virtual-device port)
     private Button    _scanBtn         = null!;
     private Button    _connectBtn      = null!;
     private ListBox   _devicesList     = null!;
@@ -54,19 +67,22 @@ public partial class MainWindow : Window
     private Button    _hideToTrayBtn   = null!;
     private ComboBox  _channelCombo    = null!;
     private Button    _detectChannelBtn = null!;
-    private TextBlock _dawHint         = null!;
     private ComboBox  _themeCombo      = null!;
-    private Button    _midianoBtn      = null!;
 
     // Status-pill colours are looked up from the theme at render time — see
     // ThemeBrush(). This is what makes Light/Dark switching re-colour the
     // pill automatically without extra wiring.
 
     // ---- Model --------------------------------------------------------
-    private readonly BleMidiClient _ble     = new();
-    private readonly MidiInPort    _midiIn  = new();
-    private readonly MidiOutPort   _midiOut = new();
+    private readonly BleMidiClient _ble = new();
     private readonly Bridge        _bridge;
+    /// <summary>
+    /// Active host backend, picked at startup by <see cref="DetectAndApplyBackend"/>.
+    /// "Virtual" → use <see cref="WmsVirtualHostEndpoint"/>.
+    /// "Loopback" → use <see cref="WinMMHostEndpoint"/> over a pre-existing
+    /// WMS loopback endpoint.
+    /// </summary>
+    private string _activeBackend = "Loopback";
 
     private BluetoothLEAdvertisementWatcher? _watcher;
     private DispatcherTimer?                 _scanTimer;
@@ -91,7 +107,7 @@ public partial class MainWindow : Window
         // glyph still set even if resource lookup fails for any reason.
         try { Icon ??= TryLoadAppIcon(); } catch { }
 
-        _bridge = new Bridge(_ble, _midiOut, _midiIn);
+        _bridge = new Bridge(_ble);
         _bridge.Log += AppendLog;
 
         WireUp();
@@ -99,23 +115,33 @@ public partial class MainWindow : Window
 
         Opened  += async (_, _) =>
         {
-            RefreshVirtualPorts();
-            // First-run guard: if no loopback endpoints exist on this PC,
-            // we first try to create one via the WMS `midi` CLI so the user
-            // doesn't have to. If the CLI isn't installed or the command
-            // fails, fall back to the explainer modal (it covers how to
-            // install WMS + how to create a pair manually).
-            if (CurrentLoopbackCount() == 0)
+            DetectAndApplyBackend();
+
+            if (_activeBackend == "Loopback")
             {
-                AppendLog("No loopback endpoint detected — trying `midi loopback create` to make one automatically…");
-                bool created = await TryAutoCreateLoopbackAsync();
-                if (created)
-                {
-                    AppendLog("Created loopback pair 'BT-MIDI Bridge' via the WMS CLI.");
-                    RefreshVirtualPorts();
-                }
+                RefreshVirtualPorts();
+                // First-run guard for the legacy path: if no loopback endpoints
+                // exist on this PC, try to create one via the WMS `midi` CLI so
+                // the user doesn't have to. If the CLI isn't installed or the
+                // command fails, fall back to the explainer modal.
                 if (CurrentLoopbackCount() == 0)
-                    await ShowLoopbackSetupDialogAsync();
+                {
+                    AppendLog("No loopback endpoint detected — trying `midi loopback create` to make one automatically…");
+                    bool created = await TryAutoCreateLoopbackAsync();
+                    if (created)
+                    {
+                        AppendLog("Created loopback pair 'BT-MIDI Bridge' via the WMS CLI.");
+                        RefreshVirtualPorts();
+                    }
+                    if (CurrentLoopbackCount() == 0)
+                        await ShowLoopbackSetupDialogAsync();
+                }
+            }
+            else
+            {
+                // Virtual mode has nothing to set up — endpoint is created on
+                // demand when the user clicks Connect on a BLE device.
+                UpdateVirtualDawHint();
             }
         };
         Closing += OnWindowClosing;
@@ -127,9 +153,21 @@ public partial class MainWindow : Window
 
     private void ResolveControls()
     {
+        _virtualPanel        = this.FindControl<StackPanel>("VirtualPanel")!;
+        _virtualPortNameBox  = this.FindControl<TextBox>("VirtualPortNameBox")!;
+        _virtualPortApplyBtn = this.FindControl<Button>("VirtualPortApplyBtn")!;
+        _virtualDawHint      = this.FindControl<TextBlock>("VirtualDawHint")!;
+        _virtualMidianoBtn   = this.FindControl<Button>("VirtualMidianoBtn")!;
+        _useLoopbackInsteadBtn = this.FindControl<Button>("UseLoopbackInsteadBtn")!;
+
+        _loopbackPanel   = this.FindControl<StackPanel>("LoopbackPanel")!;
         _portCombo       = this.FindControl<ComboBox>("PortCombo")!;
         _refreshPortsBtn = this.FindControl<Button>("RefreshPortsBtn")!;
         _loopbackHelpBtn = this.FindControl<Button>("LoopbackHelpBtn")!;
+        _dawHint         = this.FindControl<TextBlock>("DawHint")!;
+        _midianoBtn      = this.FindControl<Button>("MidianoBtn")!;
+        _installSdkRuntimeBtn = this.FindControl<Button>("InstallSdkRuntimeBtn")!;
+
         _scanBtn         = this.FindControl<Button>("ScanBtn")!;
         _connectBtn      = this.FindControl<Button>("ConnectBtn")!;
         _devicesList     = this.FindControl<ListBox>("DevicesList")!;
@@ -143,9 +181,7 @@ public partial class MainWindow : Window
         _hideToTrayBtn   = this.FindControl<Button>("HideToTrayBtn")!;
         _channelCombo    = this.FindControl<ComboBox>("ChannelCombo")!;
         _detectChannelBtn = this.FindControl<Button>("DetectChannelBtn")!;
-        _dawHint         = this.FindControl<TextBlock>("DawHint")!;
         _themeCombo      = this.FindControl<ComboBox>("ThemeCombo")!;
-        _midianoBtn      = this.FindControl<Button>("MidianoBtn")!;
     }
 
     // ===================================================================
@@ -285,8 +321,6 @@ public partial class MainWindow : Window
             try { _ble.Dispose(); } catch { }
         }).ConfigureAwait(true); // resume on UI thread for the remaining UI work
 
-        try { _midiIn.Dispose(); } catch { }
-        try { _midiOut.Dispose(); } catch { }
         try
         {
             if (_trayIcon is not null)
@@ -313,25 +347,25 @@ public partial class MainWindow : Window
     private void WireUp()
     {
         _refreshPortsBtn.Click += (_, _) => SafeRun(RefreshVirtualPorts);
-        _loopbackHelpBtn.Click += (_, _) =>
+        _loopbackHelpBtn.Click += (_, _) => OpenInBrowser(
+            "https://microsoft.github.io/MIDI/kb/how-to-create-loopback-endpoints-using-tools/");
+        _midianoBtn.Click += (_, _) => OpenInBrowser("https://app.midiano.com/");
+        _virtualMidianoBtn.Click += (_, _) => OpenInBrowser("https://app.midiano.com/");
+        _installSdkRuntimeBtn.Click += (_, _) => OpenInBrowser(
+            "https://github.com/microsoft/MIDI/releases");
+
+        _virtualPortApplyBtn.Click += (_, _) => SaveVirtualPortName();
+        // Pressing Enter inside the textbox is also "apply".
+        _virtualPortNameBox.KeyDown += (_, e) =>
         {
-            try
+            if (e.Key == Avalonia.Input.Key.Enter)
             {
-                Process.Start(new ProcessStartInfo(
-                    "https://microsoft.github.io/MIDI/kb/how-to-create-loopback-endpoints-using-tools/")
-                    { UseShellExecute = true });
+                e.Handled = true;
+                SaveVirtualPortName();
             }
-            catch { }
         };
-        _midianoBtn.Click += (_, _) =>
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo("https://app.midiano.com/")
-                    { UseShellExecute = true });
-            }
-            catch { }
-        };
+
+        _useLoopbackInsteadBtn.Click += (_, _) => SwitchBackend("Loopback");
 
         _scanBtn.Click    += (_, _) => SafeRun(StartScan);
         _connectBtn.Click += async (_, _) =>
@@ -836,7 +870,15 @@ public partial class MainWindow : Window
             if (_devicesList.SelectedIndex >= _foundDevices.Count) return;
             pick = _foundDevices[_devicesList.SelectedIndex];
         }
-        PortPair? port = _portCombo.SelectedItem as PortPair;
+
+        IHostMidiEndpoint? endpoint = BuildHostEndpointForCurrentBackend();
+        if (endpoint is null)
+        {
+            // Fatal-for-bridge but not for BLE: connect anyway so the user
+            // can still drive the on-screen keyboard to test the link.
+            AppendLog("No host endpoint available — connecting BLE only. " +
+                      "Use the on-screen keyboard to verify the BLE link.");
+        }
 
         _connectBtn.IsEnabled = false;
         _connectBtn.Content   = "Connecting…";
@@ -847,17 +889,19 @@ public partial class MainWindow : Window
 
         if (!ok)
         {
+            try { endpoint?.Dispose(); } catch { }
             _connectBtn.IsEnabled = true;
             _connectBtn.Content   = "Connect";
             return;
         }
 
-        if (port is null)
+        if (endpoint is null)
         {
-            AppendLog("No loopback endpoint selected — bridge not started. " +
-                      "You can still use the on-screen keyboard to test the BLE link.");
+            // BLE-only mode: keyboard works, but apps see nothing.
+            return;
         }
-        else if (!_bridge.Start(port.InputId, port.OutputId))
+
+        if (!_bridge.Start(endpoint))
         {
             AppendLog("Bridge failed to start; disconnecting BLE.");
             try { await _ble.DisconnectAsync(); } catch { }
@@ -865,11 +909,46 @@ public partial class MainWindow : Window
             _connectBtn.Content   = "Connect";
             return;
         }
-        else
+
+        AppendLog($"Bridging '{pick.name}' ⇄ {(_activeBackend == "Virtual" ? "virtual port" : "loopback endpoint")} '{endpoint.DisplayName}'. " +
+                  "Any app that opens this endpoint will now see your BT device.");
+    }
+
+    /// <summary>
+    /// Build the host endpoint appropriate for the active backend, using the
+    /// user's current selections (loopback combo pick, or live virtual port
+    /// name from the textbox). Returns null if the user hasn't picked a
+    /// loopback yet — the bridge runs in BLE-only mode in that case.
+    /// </summary>
+    /// <remarks>
+    /// In virtual mode this reads directly from <see cref="_virtualPortNameBox"/>
+    /// rather than from <c>AppSettings.VirtualPortName</c>, so the user's
+    /// typed-but-not-yet-Applied edit takes effect on Connect. We also
+    /// persist the value here so the next launch starts with the same name
+    /// — equivalent to clicking Apply implicitly.
+    /// </remarks>
+    private IHostMidiEndpoint? BuildHostEndpointForCurrentBackend()
+    {
+        if (_activeBackend == "Virtual")
         {
-            AppendLog($"Bridging '{pick.name}' ⇄ loopback endpoint '{port.Name}'. " +
-                      "Any app that opens this endpoint will now see your BT device.");
+            string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
+            if (string.IsNullOrEmpty(name)) name = "BT-MIDI Bridge";
+
+            var s = AppSettingsStore.Load();
+            if (s.VirtualPortName != name)
+            {
+                s.VirtualPortName = name;
+                AppSettingsStore.Save(s);
+            }
+            return new WmsVirtualHostEndpoint(name);
         }
+
+        if (_portCombo.SelectedItem is not PortPair port)
+        {
+            AppendLog("No loopback endpoint selected — pick one in card 1 or click Refresh.");
+            return null;
+        }
+        return new WinMMHostEndpoint(port.InputId, port.OutputId, port.Name);
     }
 
     // ===================================================================
@@ -943,4 +1022,129 @@ public partial class MainWindow : Window
 
     private static string FormatAddr(ulong a) =>
         string.Join(":", BitConverter.GetBytes(a).Take(6).Reverse().Select(b => b.ToString("X2")));
+
+    // ===================================================================
+    //  Backend selection (virtual-device vs legacy loopback)
+    // ===================================================================
+
+    /// <summary>
+    /// Read the user's saved preference (Auto / Virtual / Loopback), probe
+    /// for the WMS App SDK runtime, and pick a backend. Sets
+    /// <see cref="_activeBackend"/> and toggles the right card-1 panel.
+    /// Called once on first open. Switching after that goes through
+    /// <see cref="SwitchBackend"/>.
+    /// </summary>
+    private void DetectAndApplyBackend()
+    {
+        var prefs = AppSettingsStore.Load();
+        string preferred = prefs.HostBackend ?? "Auto";
+
+        if (preferred == "Loopback")
+        {
+            _activeBackend = "Loopback";
+        }
+        else
+        {
+            // Both "Auto" and "Virtual" want to try the SDK. The probe is
+            // cheap on success (cached) and on failure (cached too).
+            bool wmsAvailable = WmsRuntime.EnsureInitialized(AppendLog);
+            if (preferred == "Virtual" && !wmsAvailable)
+            {
+                AppendLog("Backend pinned to 'Virtual' but the WMS App SDK runtime is not available. " +
+                          $"Reason: {WmsRuntime.FailureReason}. " +
+                          "Falling back to the legacy loopback path for this session.");
+                _activeBackend = "Loopback";
+            }
+            else
+            {
+                _activeBackend = wmsAvailable ? "Virtual" : "Loopback";
+                if (!wmsAvailable && preferred == "Auto")
+                {
+                    AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
+                              "Install the WMS SDK Runtime from the Microsoft MIDI releases page to " +
+                              "let this app create its own MIDI port (no loopback setup needed).");
+                }
+            }
+        }
+
+        // Sync the textbox to the saved name so Apply / hint reflect it.
+        _virtualPortNameBox.Text = string.IsNullOrWhiteSpace(prefs.VirtualPortName)
+            ? "BT-MIDI Bridge"
+            : prefs.VirtualPortName;
+
+        ApplyBackendVisibility();
+        AppendLog($"Active backend: {(_activeBackend == "Virtual" ? "WMS App SDK virtual device" : "WMS loopback (WinMM)")}.");
+    }
+
+    private void ApplyBackendVisibility()
+    {
+        bool virtualMode = _activeBackend == "Virtual";
+        _virtualPanel.IsVisible  = virtualMode;
+        _loopbackPanel.IsVisible = !virtualMode;
+    }
+
+    private void SwitchBackend(string newBackend)
+    {
+        if (_activeBackend == newBackend) return;
+        if (_bridge.Running)
+        {
+            AppendLog("Disconnect first to switch backend (this would tear down the active host endpoint).");
+            return;
+        }
+
+        // Persist the new preference. We store the explicit backend rather
+        // than "Auto" so the user's switch is sticky across launches.
+        var settings = AppSettingsStore.Load();
+        settings.HostBackend = newBackend;
+        AppSettingsStore.Save(settings);
+
+        // Apply immediately. If the user switched into Virtual mode and the
+        // SDK isn't installed, DetectAndApplyBackend logs a clear message
+        // and falls back; we re-run that flow to surface that.
+        DetectAndApplyBackend();
+
+        if (_activeBackend == "Loopback") RefreshVirtualPorts();
+        else                              UpdateVirtualDawHint();
+
+        AppendLog($"Switched backend to {newBackend}. (Saved.)");
+    }
+
+    private void SaveVirtualPortName()
+    {
+        string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            AppendLog("Virtual port name can't be empty — keeping previous name.");
+            _virtualPortNameBox.Text = AppSettingsStore.Load().VirtualPortName;
+            return;
+        }
+        var s = AppSettingsStore.Load();
+        if (s.VirtualPortName == name) return;
+        s.VirtualPortName = name;
+        AppSettingsStore.Save(s);
+        UpdateVirtualDawHint();
+        AppendLog($"Virtual port name saved as '{name}'. " +
+                  (_bridge.Running
+                    ? "Disconnect/reconnect the BLE device to apply the new name."
+                    : "Will be used on the next BLE connect."));
+    }
+
+    private void UpdateVirtualDawHint()
+    {
+        string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(name)) name = "BT-MIDI Bridge";
+        _virtualDawHint.Text = $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output.";
+    }
+
+    private static void OpenInBrowser(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // Browser unavailable — nothing sensible to fall back to.
+        }
+    }
 }

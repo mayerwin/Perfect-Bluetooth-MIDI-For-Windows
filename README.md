@@ -12,23 +12,39 @@ Yamaha MD-BT01, …) as if it were a normal wired MIDI device.
 The new **Windows MIDI Services** stack (replaces the WinMM MIDI 1.0 plumbing
 in recent Windows 11 builds) does not yet provide a native BLE-MIDI
 transport. Until it does, this app fills the gap by piping data between a
-real BLE-MIDI device and a Windows MIDI Services **loopback endpoint** that
-your DAW / browser attaches to.
+real BLE-MIDI device and a Windows MIDI Services endpoint your DAW or
+browser attaches to.
 
 ```
- ┌─────────────────┐   BLE GATT   ┌──────────────┐   WMS loopback   ┌──────────────────┐
- │  BLE-MIDI       │ <──────────> │  the bridge  │ <── A ↔ B ─────> │ DAW / Web MIDI / │
- │  device         │              │  (this app)  │                  │ MIDI-OX / etc.   │
- └─────────────────┘              └──────────────┘                  └──────────────────┘
+ ┌─────────────────┐   BLE GATT   ┌──────────────┐  UMP / WinMM   ┌──────────────────┐
+ │  BLE-MIDI       │ <──────────> │  the bridge  │ <───────────>  │ DAW / Web MIDI / │
+ │  device         │              │  (this app)  │                │ MIDI-OX / etc.   │
+ └─────────────────┘              └──────────────┘                └──────────────────┘
 ```
+
+The bridge picks one of two host-side surfaces automatically:
+
+- **Virtual MIDI port** (preferred) — declared on the fly via the new WMS
+  App SDK. You just type the name your DAW will see; the port lives only
+  while this app runs. Requires the WMS App SDK Runtime to be installed
+  (one-time download, see [Setup](#one-time-setup)). Recommended by Microsoft
+  for app-to-app MIDI bridging.
+
+- **Classic loopback endpoint** (fallback) — for users who don't have the
+  SDK Runtime installed. You create a Windows MIDI Services loopback once
+  in MIDI Settings, and the app pipes through it.
 
 ## Highlights
 
 - **Single-file ~21 MB exe** — no installer. Framework-dependent + trimmed
   (doesn't bundle the .NET runtime). If .NET 10 isn't already on your PC,
   the standard Windows dialog offers to download it on first launch.
-- **Works with the new Windows MIDI Services** loopback endpoints (MIDI 2.0
-  UMP pair or MIDI 1.0 "BLOOP" — either side of the translation).
+- **Zero-setup virtual port** when the WMS App SDK Runtime is installed —
+  no MIDI Settings dance, no `midi loopback create`. Just type a name
+  ("BT-MIDI Bridge" by default), and your DAW sees a port with that name
+  for as long as this app is running.
+- **Auto-fallback** to the legacy loopback flow if the SDK Runtime isn't
+  present. The full original setup UX is preserved end to end.
 - **Per-device TX channel selector** + auto-detector. Some BLE-MIDI devices
   (Roland FP-90X observed) silently receive on a channel that's *different*
   from their visible "Transmit Channel" setting. Click **Detect…** and the
@@ -57,49 +73,66 @@ for you (one click). If you'd rather install it ahead of time:
 
 ## One-time setup
 
-### 1. Install Windows MIDI Services
+### Recommended: install the WMS App SDK Runtime (skips the loopback step)
 
-WMS ships with recent Windows 11 updates. Verify:
+If you install the **Windows MIDI Services App SDK Runtime and Tools**,
+this app can declare its own MIDI port on demand — no loopback to create,
+no MIDI Settings dance, no `midi loopback create`. Just launch the app and
+your DAW sees the port.
+
+1. Go to <https://github.com/microsoft/MIDI/releases>, grab the latest
+   "Windows MIDI Services SDK Runtime and Tools" `.exe` for your
+   architecture (x64 for Intel/AMD, Arm64 for Qualcomm), and run it.
+   Windows 11 UAC will prompt for admin rights during install.
+2. Launch this app. Card 1 will say **"Virtual MIDI port"**. Type whatever
+   name you want your DAW to see (default: `BT-MIDI Bridge`), click
+   **Apply**, and you're done.
+3. Skip to [Using it](#using-it).
+
+### Alternative: classic loopback endpoint (no SDK runtime needed)
+
+If you don't want to install the SDK Runtime, the app falls back
+automatically to the legacy loopback flow. The Windows MIDI Services
+*service* itself ships in-box with recent Windows 11 updates (24H2 / 25H2 /
+26H1), so this path works on a stock install — you just have to create the
+loopback yourself once.
+
+**Verify WMS service is present:**
 
 ```
 midi --version
 ```
 
-If `midi` is not recognised, install it from the [Microsoft MIDI
-releases](https://github.com/microsoft/MIDI/releases) (look for "Windows MIDI
-Services SDK and tools"). Project home: <https://github.com/microsoft/MIDI>.
+If `midi` is not recognised, you don't have the WMS console tool installed
+either — pick the recommended path above, which gives you `midi` along with
+the SDK runtime.
 
-### 2. Create a loopback endpoint
+**Create a loopback endpoint:**
 
 WMS supports two loopback flavours; either works with this app. Pick
 whichever's easier:
 
-**MIDI 2.0 UMP pair — the default, already built in:**
+- **MIDI 2.0 UMP pair (default):** *GUI:* MIDI Settings → **Loopback /
+  Endpoints** → **Create loopback pair**, root name `BT-MIDI Bridge`. You'll
+  get `BT-MIDI Bridge (A)` and `BT-MIDI Bridge (B)`. *Console:*
+  `midi loopback create --root-name "BT-MIDI Bridge"`. This app uses the
+  **A** side; your DAW picks **B**.
+- **MIDI 1.0 "BLOOP" (single endpoint, like loopMIDI):** install the
+  "MIDI 1.0 Basic Loopback" service plugin from WMS releases, create one
+  from MIDI Settings named `BT-MIDI Bridge`. App and DAW both pick the same
+  endpoint.
 
-- *GUI:* Launch **MIDI Settings** from the Start menu → **Loopback /
-  Endpoints** → **Create loopback pair**. Root name: `BT-MIDI Bridge`. You
-  should then see `BT-MIDI Bridge (A)` and `BT-MIDI Bridge (B)` in the
-  endpoint list.
-- *Console:* `midi loopback create --root-name "BT-MIDI Bridge"` (transient;
-  see `midi loopback create --help` for the persistence flag).
-
-A UMP pair is two cross-wired endpoints. This app uses the **A** side; your
-DAW / browser picks **B**.
-
-**MIDI 1.0 "BLOOP" — one name, one endpoint (like the old loopMIDI):**
-
-Install the "MIDI 1.0 Basic Loopback" service plugin from WMS releases, then
-create one from MIDI Settings named `BT-MIDI Bridge`. App and DAW both pick
-the same endpoint. Use this if you prefer the loopMIDI mental model or want
-to skip the UMP translation layer entirely.
+(The app will offer to run `midi loopback create` automatically on first
+launch when no loopback exists.)
 
 ## Using it
 
+### With the virtual-port backend (SDK Runtime installed)
+
 1. Launch `PerfectBluetoothMidi.exe`.
 
-2. **Pick the loopback endpoint.** If you created a UMP pair: pick
-   `BT-MIDI Bridge (A)`. If you created a BLOOP: pick `BT-MIDI Bridge`.
-   Click **Refresh** if it's missing.
+2. **Confirm the port name** in card 1 (default: `BT-MIDI Bridge`). Edit it
+   if you'd like, click **Apply**.
 
 3. **Put the BLE device into advertising mode**, then click **Scan for BLE
    MIDI**.
@@ -119,12 +152,15 @@ to skip the UMP translation layer entirely.
    the number of notes equals the piano's receive channel. Pick that number
    in the dropdown — it's saved per device, so you won't do this again.
 
-6. In your DAW / Web MIDI site, open the opposite-side loopback endpoint:
-   - UMP pair: `BT-MIDI Bridge (B)`.
-   - BLOOP: `BT-MIDI Bridge` (same name as the app picked).
+6. In your DAW / Web MIDI site, open the port by the name you chose as
+   BOTH input and output. (The card 1 hint shows the exact name.)
 
-   Use it as both the input (to hear what you play on the BLE keyboard) and
-   the output (to send notes to the BLE keyboard).
+### With the classic-loopback backend (fallback)
+
+Same steps, but in step 2 you pick the loopback endpoint from a dropdown
+instead of typing a name. In step 6 the DAW picks the *opposite* side of
+the pair (UMP pair: `BT-MIDI Bridge (B)` if the app picked `(A)`; BLOOP:
+the same name as the app picked).
 
 Closing the window exits the app. Click **Hide to tray** if you want the
 bridge to keep running in the background — bring the window back (or exit
@@ -190,9 +226,17 @@ Test-sequence phases:
 
 ## Troubleshooting
 
-- **"No loopback endpoint pairs found."** No loopback exists yet. Run
-  `midi loopback create --root-name "BT-MIDI Bridge"` (UMP pair), or use
-  MIDI Settings to create a UMP pair or BLOOP, then **Refresh** in the app.
+- **The app says "WMS App SDK runtime not detected".** That's expected if
+  you haven't installed the Windows MIDI Services SDK Runtime — the app
+  silently falls back to the loopback path. Either follow the [classic
+  loopback setup](#alternative-classic-loopback-endpoint-no-sdk-runtime-needed)
+  or install the SDK Runtime from the [Microsoft MIDI releases
+  page](https://github.com/microsoft/MIDI/releases).
+
+- **"No loopback endpoint pairs found."** Loopback path only — no loopback
+  exists yet. Run `midi loopback create --root-name "BT-MIDI Bridge"` (UMP
+  pair), or use MIDI Settings to create a UMP pair or BLOOP, then
+  **Refresh** in the app.
 
 - **Scan shows no devices.** Make sure Windows Bluetooth is on, and that
   the device is advertising (for FP-90X: advertises only while its
@@ -241,19 +285,29 @@ PerfectBluetoothMidi/
 ├── app.manifest              # Win10/11 compat + per-monitor DPI awareness
 ├── Program.cs                # entry point + CLI-vs-GUI branch
 ├── CliHost.cs                # headless CLI (scan / connect / detect / phase)
-├── MainWindow.axaml(.cs)     # main GUI window + wiring
+├── MainWindow.axaml(.cs)     # main GUI window + backend selection
 ├── PianoKeyboard.cs          # custom Avalonia on-screen keyboard control
-├── Bridge.cs                 # glue: BLE RX → WinMM TX, apps → BLE TX
+├── Bridge.cs                 # glue: BLE ⇄ IHostMidiEndpoint
+├── IHostMidiEndpoint.cs      # interface — the host side of the bridge
+├── WinMMHostEndpoint.cs      # legacy backend (WMS loopback via WinMM)
+├── WmsVirtualHostEndpoint.cs # preferred backend (WMS App SDK virtual UMP device)
+├── WmsRuntime.cs             # SDK init/detection + UMP ⇄ MIDI 1.0 helpers
 ├── BleMidiClient.cs          # BLE GATT client + TransmitChannel rewrite
 ├── BleMidiParser.cs          # BLE-MIDI 1.0 framing: decode + encode
 ├── ChannelDetector.cs        # N-notes-per-channel auto-detector
-├── DeviceSettings.cs         # per-MAC persistence (%AppData%\PerfectBluetoothMidi\)
+├── DeviceSettings.cs         # per-MAC persistence
+├── AppSettings.cs            # global settings (theme, backend, virtual port name)
 ├── WinMMMidi.cs              # P/Invoke wrapper for midiIn*/midiOut* (WMS-replumbed)
 └── Diag.cs                   # shared verbose-logging flag + hex helpers
 ```
 
-No external NuGet packages beyond Avalonia. Everything else is built-in
-.NET and Windows SDK.
+External NuGet packages: Avalonia 11, plus `Microsoft.Windows.Devices.Midi2`
+(the WMS App SDK projection). The latter is **not on nuget.org** — it's
+vendored from the [Microsoft MIDI GitHub releases](https://github.com/microsoft/MIDI/releases)
+into `nuget-packages/` and surfaced via a local `<add>` source in
+`NuGet.config`. To update: drop the new `.nupkg` in there, bump the
+`PackageReference Version` in `PerfectBluetoothMidi.csproj`, and re-run
+`dotnet restore`.
 
 ## License
 
