@@ -147,6 +147,35 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
 - BLE writes are serialized through `_sendLock` — don't parallelize.
 - GATT handles can race with teardown: null-check inside locks.
 
+## Pending follow-ups
+
+Time-triggered cleanups Claude should propose to the user when the conditions
+below are met. Each item lists the trigger and the expected action.
+
+- **Drop the vendored WMS SDK nupkg** — *check this on every session that touches
+  package deps, and proactively any session after 2026-05-28.*
+  As of 2026-04-30 (commit `26984ae`) the WMS App SDK
+  (`Microsoft.Windows.Devices.Midi2`) is pinned to `1.0.17-rc.4.25`, vendored
+  in `nuget-packages/`, and resolved via a local NuGet source in
+  `NuGet.config`. The whole arrangement exists *only* because Microsoft
+  hasn't published a stable to nuget.org yet.
+  **Steps when checking**:
+  1. `curl -fsSL https://api.nuget.org/v3-flatcontainer/microsoft.windows.devices.midi2/index.json`
+     — look for any version without a `-rc`/`-preview`/`-beta` suffix.
+  2. `gh release list --repo microsoft/MIDI --limit 5 --exclude-pre-releases`
+     — confirm against the GitHub releases.
+  3. **If a stable exists**: open a PR that deletes `nuget-packages/`,
+     removes the `local-wms-sdk` entry from `NuGet.config` (both
+     `<packageSources>` and `<packageSourceMapping>`), bumps the
+     `PackageReference` Version, and updates this file + `README.md` to
+     drop all "not on nuget.org / vendored" prose. Verify
+     `dotnet build -c Release` and `dotnet publish` still pass.
+  4. **If only a newer RC exists**: don't auto-bump — RC-to-RC ABI breaks
+     have happened (rc-3 → rc-4 changed loopback result types) and bumping
+     an RC also requires the user to install the matching SDK Runtime.
+     Tell the user the RC moved and let them decide.
+  5. **If nothing changed**: say so in one line and move on.
+
 ## Preferred workflow
 
 - Prefer targeted `Edit` over full rewrites — the files have heavy comments
