@@ -88,7 +88,7 @@ this app can declare its own MIDI port on demand — no loopback to create,
 no MIDI Settings dance, no `midi loopback create`. Just launch the app and
 your DAW sees the port.
 
-1. Go to <https://github.com/microsoft/MIDI/releases>, grab the latest
+1. Go to [aka.ms/midi](https://aka.ms/midi) to grab the latest
    "Windows MIDI Services SDK Runtime and Tools" `.exe` for your
    architecture (x64 for Intel/AMD, Arm64 for Qualcomm), and run it.
    Windows 11 UAC will prompt for admin rights during install.
