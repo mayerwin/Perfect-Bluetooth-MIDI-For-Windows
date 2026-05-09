@@ -379,6 +379,11 @@ public partial class MainWindow : Window
         }
         catch { }
 
+        // Final log-file flush on the way out. AutoFlush + ProcessExit cover
+        // this in normal operation, but a Shutdown() that races with the
+        // process loop could in theory exit before ProcessExit fires.
+        try { CrashLog.Flush(); } catch { }
+
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Fire Shutdown on the UI thread, not inside the Closing handler's
@@ -1189,14 +1194,33 @@ public partial class MainWindow : Window
     // ===================================================================
     private void AppendLog(string line)
     {
+        // Always feed the global crash buffer + optional --log file FIRST,
+        // even during shutdown. The cross-thread re-post below would lose
+        // the line if a crash hit the UI thread before it could drain — and
+        // those final lines are exactly what we want in the crash dump.
+        // CrashLog.Append is internally locked, so it's safe from any thread
+        // and only sees each line once (the UI-thread re-post path below
+        // dispatches to the helper, not back through this method).
+        try { CrashLog.Append(line); } catch { }
+
         if (_shuttingDown) return;
 
         if (!Dispatcher.UIThread.CheckAccess())
         {
-            try { Dispatcher.UIThread.Post(() => AppendLog(line)); } catch { }
+            try { Dispatcher.UIThread.Post(() => AppendLogToBox(line)); } catch { }
             return;
         }
 
+        AppendLogToBox(line);
+    }
+
+    /// <summary>
+    /// UI-thread-only helper: stamp the line and append it to the visible
+    /// log textbox. Split out from <see cref="AppendLog"/> so the cross-
+    /// thread re-post doesn't double-count the line in the crash buffer.
+    /// </summary>
+    private void AppendLogToBox(string line)
+    {
         try
         {
             string stamp = DateTime.Now.ToString("HH:mm:ss.fff");

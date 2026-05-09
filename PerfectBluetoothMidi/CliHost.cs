@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -40,16 +38,13 @@ internal static class CliHost
         return false;
     }
 
-    // WinExe doesn't hook stdout by default. AttachConsole re-binds it to the
-    // launching terminal (cmd/pwsh/bash) so Console.WriteLine becomes visible.
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AttachConsole(uint dwProcessId);
-    private const uint ATTACH_PARENT_PROCESS = 0xFFFFFFFF;
-
     public static async Task<int> RunAsync(string[] args)
     {
-        TryAttachConsole();
-
+        // Console attach + --log file handling are owned by CrashLog (set up
+        // by Program.Main before we get here). All this method does is funnel
+        // each line through CrashLog, which already writes to the log file
+        // (if --log was passed) and stdout, and keeps the in-memory ring
+        // buffer that feeds the crash dump.
         CliOptions opts;
         try
         {
@@ -64,39 +59,12 @@ internal static class CliHost
 
         if (opts.ShowHelp) { PrintHelp(); return 0; }
 
-        StreamWriter? logFile = null;
-        if (opts.LogPath is not null)
-        {
-            try
-            {
-                logFile = new StreamWriter(opts.LogPath, append: false) { AutoFlush = true };
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Could not open log file '{opts.LogPath}': {ex.Message}");
-                return 1;
-            }
-        }
-
-        // Thread-safe writer: BleMidiClient.Log fires on WinRT thread-pool
-        // threads, and we also write from the main flow.
-        object writeLock = new();
-        void Write(string s)
-        {
-            string stamped = $"{DateTime.Now:HH:mm:ss.fff}  {s}";
-            lock (writeLock)
-            {
-                Console.Out.WriteLine(stamped);
-                logFile?.WriteLine(stamped);
-            }
-        }
-
         try
         {
             return opts.Mode switch
             {
-                CliMode.Scan    => await ScanAsync(opts, Write).ConfigureAwait(false),
-                CliMode.Connect => await ConnectAndTestAsync(opts, Write).ConfigureAwait(false),
+                CliMode.Scan    => await ScanAsync(opts, CrashLog.Append).ConfigureAwait(false),
+                CliMode.Connect => await ConnectAndTestAsync(opts, CrashLog.Append).ConfigureAwait(false),
                 _               => Usage("No command specified."),
             };
 
@@ -109,12 +77,10 @@ internal static class CliHost
         }
         catch (Exception ex)
         {
-            Write($"UNHANDLED: {ex}");
-            return 2;
-        }
-        finally
-        {
-            logFile?.Dispose();
+            CrashLog.Append($"UNHANDLED: {ex}");
+            // Let Program.Main's catch write the crash file — it has the
+            // same view of the buffer and we don't want a double-dump.
+            throw;
         }
     }
 
@@ -131,7 +97,6 @@ internal static class CliHost
         public bool   DoWakeUp;
         public bool   ActiveSensing;
         public bool   Verbose = true; // default ON in CLI — we're debugging
-        public string? LogPath;
         public bool   UnpairOnExit;   // default OFF for fast iteration
         public int    Phase;          // 0 = all phases, 1..7 = only that phase
         public int[]? Channels;       // phase 5 override: which 1..16 channels to sweep
@@ -176,7 +141,10 @@ internal static class CliHost
                 case "-v":                opts.Verbose       = true;  break;
                 case "--quiet":
                 case "-q":                opts.Verbose       = false; break;
-                case "--log":             opts.LogPath       = Next(); break;
+                // --log PATH is consumed (and acted on) by Program.Main
+                // before we get here. We still need to "eat" the value here
+                // so the unknown-arg branch doesn't reject it.
+                case "--log":             _ = Next(); break;
                 case "--unpair-on-exit":  opts.UnpairOnExit  = true;  break;
                 case "--phase":
                     opts.Phase = int.Parse(Next()!, CultureInfo.InvariantCulture);
@@ -528,23 +496,7 @@ internal static class CliHost
         catch (OperationCanceledException) { /* test was aborted */ }
     }
 
-    // ------------------------------------------------------------- console/help
-
-    private static void TryAttachConsole()
-    {
-        try
-        {
-            if (AttachConsole(ATTACH_PARENT_PROCESS))
-            {
-                // Re-bind Console.Out / Error to the newly-attached handles.
-                var stdOut = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
-                Console.SetOut(stdOut);
-                var stdErr = new StreamWriter(Console.OpenStandardError()) { AutoFlush = true };
-                Console.SetError(stdErr);
-            }
-        }
-        catch { /* no parent console — log-to-file still works */ }
-    }
+    // ------------------------------------------------------------- help
 
     private static void PrintHelp()
     {
@@ -553,9 +505,15 @@ internal static class CliHost
 
 USAGE
   PerfectBluetoothMidi.exe                                  (launch GUI; no args)
+  PerfectBluetoothMidi.exe [--log PATH] [--verbose]         (launch GUI with logging)
   PerfectBluetoothMidi.exe --scan [--scan-time SEC] [--log PATH]
   PerfectBluetoothMidi.exe --connect ADDR [options] [--log PATH]
   PerfectBluetoothMidi.exe --help
+
+CRASH DUMPS
+  On any unhandled exception the app writes <exe>.crash.log next to the
+  executable, containing the last several thousand log lines plus the
+  exception. This is always-on; no flag needed.
 
 ADDR
   BLE MAC, colon or dash separated, or raw hex. All of these are valid:
