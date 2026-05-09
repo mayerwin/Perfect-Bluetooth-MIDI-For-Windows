@@ -264,8 +264,8 @@ Test-sequence phases:
   you haven't installed the Windows MIDI Services SDK Runtime — the app
   silently falls back to the loopback path. Either follow the [classic
   loopback setup](#alternative-classic-loopback-endpoint-no-sdk-runtime-needed)
-  or install the SDK Runtime from the [Microsoft MIDI releases
-  page](https://github.com/microsoft/MIDI/releases).
+  or install the SDK Runtime and Tools from
+  [aka.ms/midi](https://aka.ms/midi).
 
 - **"No loopback endpoint pairs found."** Loopback path only — no loopback
   exists yet. Run `midi loopback create --root-name "BT-MIDI Bridge"` (UMP

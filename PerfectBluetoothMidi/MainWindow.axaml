@@ -169,7 +169,7 @@
                     FontSize="11"
                     Margin="0,8,0,8"
                     IsVisible="False"
-                    ToolTip.Tip="Opens the Microsoft MIDI releases page. Once installed, this app will create a virtual port on its own — no loopback needed."/>
+                    ToolTip.Tip="Opens aka.ms/midi to download the Windows MIDI Services SDK Runtime and Tools. Once installed, this app will create a virtual port on its own — no loopback needed."/>
             <Border BorderBrush="{DynamicResource LogBorderBrush}"
                     BorderThickness="0,1,0,0"
                     Margin="0,0,0,10"/>

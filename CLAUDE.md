@@ -15,8 +15,8 @@ Two host-side backends, picked at startup by `WmsRuntime.EnsureInitialized`:
     the WMS App SDK (`Microsoft.Windows.Devices.Midi2.Endpoints.Virtual.
     MidiVirtualDeviceManager.CreateVirtualDevice`). No pre-flight loopback
     setup; the endpoint lives only while the app runs. **Requires** the WMS
-    App SDK Runtime to be installed on the machine — separate ~219 MB
-    download from <https://github.com/microsoft/MIDI/releases>.
+    App SDK Runtime and Tools to be installed on the machine — separate
+    ~219 MB download from <https://aka.ms/midi>.
 
   - **Loopback** (fallback) — legacy path used when the SDK runtime isn't
     installed (or the user explicitly opted in via

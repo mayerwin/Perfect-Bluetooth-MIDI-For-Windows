@@ -74,10 +74,10 @@
                      Foreground="{DynamicResource TextSecondaryBrush}"
                      FontSize="12"
                      LineHeight="17"
-                     Text="Don't have the midi command? You need Windows MIDI Services. It ships with recent Windows 11 updates; if missing, install it from the Microsoft MIDI releases page."/>
+                     Text="Don't have the midi command? You need the Windows MIDI Services SDK Runtime and Tools (the in-box WMS service ships with recent Windows 11 updates, but the midi.exe console tool is part of the SDK Runtime package). Get it from aka.ms/midi."/>
           <Button x:Name="DocsBtn"
                   Classes="link"
-                  Content="Open Microsoft MIDI releases…"
+                  Content="Open aka.ms/midi…"
                   Foreground="{DynamicResource AccentBrush}"
                   HorizontalAlignment="Left"/>
         </StackPanel>

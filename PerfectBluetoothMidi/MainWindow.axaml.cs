@@ -399,7 +399,7 @@ public partial class MainWindow : Window
         _midianoBtn.Click += (_, _) => OpenInBrowser("https://app.midiano.com/");
         _virtualMidianoBtn.Click += (_, _) => OpenInBrowser("https://app.midiano.com/");
         _installSdkRuntimeBtn.Click += (_, _) => OpenInBrowser(
-            "https://github.com/microsoft/MIDI/releases");
+            "https://aka.ms/midi");
 
         _virtualPortApplyBtn.Click += (_, _) => SaveVirtualPortName();
         // Pressing Enter inside the textbox is also "apply".
@@ -1328,7 +1328,7 @@ public partial class MainWindow : Window
             if (!wmsAvailable && preferred == "Auto")
             {
                 AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
-                          "Install the WMS SDK Runtime from the Microsoft MIDI releases page to " +
+                          "Install the WMS SDK Runtime and Tools from https://aka.ms/midi to " +
                           "let this app create its own MIDI port (no loopback setup needed).");
             }
         }

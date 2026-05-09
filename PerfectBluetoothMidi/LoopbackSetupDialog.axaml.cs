@@ -14,8 +14,8 @@ namespace PerfectBluetoothMidi;
 ///
 /// Flow:
 ///   - Copy button writes the CLI command to the clipboard.
-///   - "Open Microsoft MIDI releases…" opens the WMS install page in the
-///     user's default browser.
+///   - "Open aka.ms/midi…" opens the WMS SDK Runtime and Tools install page
+///     in the user's default browser.
 ///   - "Check again" calls <see cref="RecheckCallback"/> (supplied by the
 ///     caller). If the caller reports one or more loopback endpoints now
 ///     exist, we auto-close; otherwise the dialog stays open.
@@ -53,7 +53,7 @@ public partial class LoopbackSetupDialog : Window
         {
             try
             {
-                Process.Start(new ProcessStartInfo("https://github.com/microsoft/MIDI/releases")
+                Process.Start(new ProcessStartInfo("https://aka.ms/midi")
                 { UseShellExecute = true });
             }
             catch { /* browser unavailable — nothing sensible to fall back to */ }
