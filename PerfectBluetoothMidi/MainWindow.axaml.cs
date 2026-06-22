@@ -38,6 +38,16 @@ namespace PerfectBluetoothMidi;
 public partial class MainWindow : Window
 {
     // ---- Controls (resolved from XAML on load) -------------------------
+    // Root scaler — shrinks the whole UI on small displays (see
+    // ApplyScreenFitScale). Resolved alongside the rest below.
+    private LayoutTransformControl _rootScaler = null!;
+    private ScaleTransform         _rootScale  = null!;
+    // Re-entrancy guard for ApplyScreenFitScale (setting Width/Height can
+    // re-raise the events that call it) and the bounds of the screen we last
+    // fit to — lets the PositionChanged handler distinguish "still on the same
+    // monitor" from "moved to another" without re-fitting on every drag pixel.
+    private bool      _applyingScale;
+    private PixelRect _lastFitScreenBounds;
     // Card 1 — virtual-device panel
     private StackPanel _virtualPanel    = null!;
     private TextBox   _virtualPortNameBox = null!;
@@ -151,8 +161,27 @@ public partial class MainWindow : Window
         WireUp();
         InstallTrayIcon();
 
+        // Shrink the UI up-front (before the window is shown) so it opens at a
+        // size that fits the display — avoids a flash of the full-size window
+        // on small screens. Re-applied in Opened once the real target screen
+        // is known (constructor only sees the primary screen).
+        ApplyScreenFitScale();
+
+        // Keep fitting whichever display the window is on if it changes at
+        // runtime. PositionChanged fires throughout a drag, so we gate it on an
+        // actual monitor change; ScalingChanged covers a pure DPI change (the
+        // Windows scale setting changing, or a cross-DPI move). Screens.Changed
+        // (monitors added/removed, resolution changed) is wired in Opened where
+        // the Screens service is guaranteed available.
+        PositionChanged += (_, _) => ReapplyScaleIfScreenChanged();
+        ScalingChanged  += (_, _) => ApplyScreenFitScale();
+
         Opened  += async (_, _) =>
         {
+            ApplyScreenFitScale();
+            if (Screens is not null)
+                Screens.Changed += (_, _) => ApplyScreenFitScale();
+
             // All the heavy WMS/SDK work is awaited via Task.Run so the
             // window can paint and the user sees progress in the activity
             // log instead of a frozen UI.
@@ -196,6 +225,9 @@ public partial class MainWindow : Window
 
     private void ResolveControls()
     {
+        _rootScaler          = this.FindControl<LayoutTransformControl>("RootScaler")!;
+        _rootScale           = (ScaleTransform)_rootScaler.LayoutTransform!;
+
         _virtualPanel        = this.FindControl<StackPanel>("VirtualPanel")!;
         _virtualPortNameBox  = this.FindControl<TextBox>("VirtualPortNameBox")!;
         _virtualPortApplyBtn = this.FindControl<Button>("VirtualPortApplyBtn")!;
@@ -227,6 +259,114 @@ public partial class MainWindow : Window
         _detectChannelBtn = this.FindControl<Button>("DetectChannelBtn")!;
         _themeCombo      = this.FindControl<ComboBox>("ThemeCombo")!;
         _autoReconnectBox = this.FindControl<CheckBox>("AutoReconnectBox")!;
+    }
+
+    // ===================================================================
+    //  Small-screen fit
+    // ===================================================================
+
+    // The size (device-independent pixels) the layout was designed around.
+    // DesignMin* is the comfortable floor the controls were authored against;
+    // Design{Width,Height} is the roomier default. These mirror the
+    // Width/Height/MinWidth/MinHeight in MainWindow.axaml — keep them in sync.
+    private const double DesignWidth     = 1040;
+    private const double DesignHeight    = 760;
+    private const double DesignMinWidth  = 820;
+    private const double DesignMinHeight = 760;
+    // Never shrink below this — past roughly half size the text stops being
+    // comfortably legible, and no real display needs more reduction than that.
+    private const double MinFitScale     = 0.5;
+
+    /// <summary>
+    /// Scale the entire UI down (via <see cref="_rootScale"/>) so the window
+    /// always fits the current display's working area. On screens at least as
+    /// large as the design size this is a no-op (scale = 1). On smaller ones
+    /// — 7" 1024x600 panels, or 1080p at 150% scaling — it shrinks the content
+    /// uniformly and pulls the window's own size/constraints down to match, so
+    /// the title bar stays on-screen and the window remains movable/resizable.
+    /// Best-effort: any failure to probe the screen just leaves the window at
+    /// its full design size.
+    /// </summary>
+    private void ApplyScreenFitScale()
+    {
+        if (_rootScale is null || _shuttingDown || _applyingScale) return;
+
+        // Re-entrancy guard: setting Width/Height below can synchronously
+        // re-raise PositionChanged/ScalingChanged, whose handlers call back
+        // in here. Recomputing mid-apply would just thrash.
+        _applyingScale = true;
+        try
+        {
+            // ScreenFromVisual needs the window attached (post-show); before
+            // that we fall back to the primary screen. CenterScreen positions
+            // on the primary screen anyway, so this matches where we'll open.
+            var screen = Screens?.ScreenFromVisual(this) ?? Screens?.Primary;
+            if (screen is null) return;
+
+            // Remember which monitor we fit to, so the PositionChanged handler
+            // can tell a same-monitor drag (do nothing) from a cross-monitor
+            // move (re-fit) without recomputing on every pixel.
+            _lastFitScreenBounds = screen.Bounds;
+
+            double scaling = screen.Scaling <= 0 ? 1.0 : screen.Scaling;
+            // WorkingArea excludes the taskbar and is in physical pixels;
+            // convert to the DIPs that Width/Height/Min* are expressed in.
+            double availW = screen.WorkingArea.Width  / scaling;
+            double availH = screen.WorkingArea.Height / scaling;
+
+            // Reserve room for the OS window chrome (title bar + resize border)
+            // so the scaled window's *frame* still fits inside the working area.
+            const double chromeW = 16;
+            const double chromeH = 48;
+            double fitW = Math.Max(1, availW - chromeW);
+            double fitH = Math.Max(1, availH - chromeH);
+
+            // Fit to the *minimum* design size: that's the smallest the layout
+            // is happy at, so once it fits, the whole window fits.
+            double scale = Math.Min(1.0, Math.Min(fitW / DesignMinWidth, fitH / DesignMinHeight));
+            scale = Math.Max(MinFitScale, scale);
+
+            _rootScale.ScaleX = scale;
+            _rootScale.ScaleY = scale;
+
+            // Pull the window's own size + constraints down in step with the
+            // content. Without this, MinHeight (760) would keep the frame
+            // taller than a small screen even though the content now fits.
+            MinWidth  = DesignMinWidth  * scale;
+            MinHeight = DesignMinHeight * scale;
+            Width  = Math.Min(DesignWidth  * scale, fitW);
+            Height = Math.Min(DesignHeight * scale, fitH);
+        }
+        catch
+        {
+            // Screen probing is best-effort; on failure leave the full size.
+        }
+        finally
+        {
+            _applyingScale = false;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Window.PositionChanged"/> handler. That event fires on every
+    /// pixel of a window drag, so this stays cheap: it re-fits only when the
+    /// window has actually landed on a different monitor than the one
+    /// <see cref="ApplyScreenFitScale"/> last scaled for. This catches dragging
+    /// the window onto a smaller (or differently-DPI'd) display at runtime.
+    /// </summary>
+    private void ReapplyScaleIfScreenChanged()
+    {
+        if (_shuttingDown || _applyingScale) return;
+        try
+        {
+            var screen = Screens?.ScreenFromVisual(this);
+            if (screen is not null && screen.Bounds != _lastFitScreenBounds)
+                ApplyScreenFitScale();
+        }
+        catch
+        {
+            // Best-effort, exactly like ApplyScreenFitScale.
+        }
     }
 
     // ===================================================================

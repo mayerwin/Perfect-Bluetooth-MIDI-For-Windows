@@ -10,6 +10,24 @@
         WindowStartupLocation="CenterScreen">
 
   <!--
+    Small-screen fit: the whole UI is wrapped in a LayoutTransformControl so
+    it can be scaled down uniformly when the display is smaller than the
+    window's natural min size (820x760 DIP). Netbooks / 7" panels (1024x600)
+    and 1080p-at-150%-scaling are both smaller than that, which used to push
+    the title bar off the top of the screen — the user could neither move nor
+    resize the window. Rather than add a scrollbar, MainWindow.ApplyScreenFitScale
+    sets RootScale so everything shrinks to fit (text just renders smaller).
+    A LayoutTransform (not a RenderTransform) is used on purpose: it scales the
+    layout itself, so the content lays out at its design size and is then scaled
+    — nothing re-wraps — and the window reports the scaled size to the OS.
+    No-op (scale = 1) on displays large enough for the design size.
+  -->
+  <LayoutTransformControl x:Name="RootScaler">
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform/>
+    </LayoutTransformControl.LayoutTransform>
+
+  <!--
     Grid lets the activity log (row 3, "*") grow to fill whatever vertical
     space remains. Rows 0-2 are Auto so they're exactly as tall as their
     content.  This is the architectural fix that WinForms' TableLayoutPanel
@@ -303,6 +321,7 @@
       </Grid>
     </Border>
   </Grid>
+  </LayoutTransformControl>
 
   <!-- Tray icon is wired up in code-behind (InstallTrayIcon): Avalonia
        attaches the TrayIcons list to Application.Current, not the window. -->
