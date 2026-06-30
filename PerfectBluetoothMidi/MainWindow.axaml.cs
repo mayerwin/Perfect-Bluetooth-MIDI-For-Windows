@@ -592,6 +592,29 @@ public partial class MainWindow : Window
             });
         };
 
+        // Per-device discovery hint (Roland Go:Keys 5 and similar reject the
+        // targeted by-UUID GATT query). Read before discovery so a known device
+        // skips the doomed by-UUID attempts; persisted the first time the
+        // full-enumeration fallback proves it's needed. Both run off the UI
+        // thread; DeviceSettingsStore is internally locked, so no marshalling.
+        _ble.ShouldPreferFullServiceDiscovery = addr =>
+        {
+            try { return DeviceSettingsStore.Get(addr)?.PreferFullServiceDiscovery == true; }
+            catch { return false; }
+        };
+        _ble.FullServiceDiscoveryNeeded += addr =>
+        {
+            try
+            {
+                var existing = DeviceSettingsStore.Get(addr) ?? new DeviceSetting();
+                if (existing.PreferFullServiceDiscovery) return; // already recorded
+                existing.PreferFullServiceDiscovery = true;
+                existing.LastSeenUtc = DateTime.UtcNow;
+                DeviceSettingsStore.Save(addr, existing);
+            }
+            catch { /* persistence is best-effort; the connect already succeeded */ }
+        };
+
         InitChannelCombo();
         _channelCombo.SelectionChanged += (_, _) => OnChannelComboChanged();
         _detectChannelBtn.Click += async (_, _) => await RunDetectAsync();

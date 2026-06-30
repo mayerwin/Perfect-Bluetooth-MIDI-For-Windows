@@ -32,6 +32,17 @@ public sealed class DeviceSetting
     /// </summary>
     public int TransmitChannel { get; set; }
 
+    /// <summary>
+    /// True once we've learned this device rejects the targeted by-UUID GATT
+    /// service query (throws ERROR_BAD_COMMAND / HRESULT 0x80070016) and is only
+    /// discoverable via a full primary-service enumeration — observed on the
+    /// Roland Go:Keys 5. When set, the connect path skips the doomed by-UUID
+    /// attempts and goes straight to full enumeration, shaving ~1 s off each
+    /// connect. Purely a performance hint: if it's ever wrong, discovery still
+    /// resolves correctly (full enumeration is a superset of the by-UUID query).
+    /// </summary>
+    public bool PreferFullServiceDiscovery { get; set; }
+
     public DateTime LastSeenUtc { get; set; }
 }
 

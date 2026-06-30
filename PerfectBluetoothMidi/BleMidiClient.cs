@@ -63,6 +63,25 @@ internal sealed class BleMidiClient : IDisposable
     public event Action<string>? Log;
     public event Action<bool>?   ConnectionChanged;
 
+    /// <summary>
+    /// Optional host-supplied hint: given a device address, returns true if the
+    /// device is known to reject the targeted by-UUID GATT service query, so the
+    /// connect path should skip straight to full enumeration. Null (default) =
+    /// always try the fast by-UUID query first. MainWindow wires this to the
+    /// persisted per-device <c>PreferFullServiceDiscovery</c> flag; the CLI
+    /// leaves it null. Pure performance hint — correctness never depends on it.
+    /// </summary>
+    public Func<ulong, bool>? ShouldPreferFullServiceDiscovery;
+
+    /// <summary>
+    /// Raised the first time a connect discovers (via the full-enumeration
+    /// fallback) that a device only answers full discovery, not the by-UUID
+    /// query. The host can persist this so later connects skip the doomed
+    /// by-UUID attempts. Fires on a WinRT thread-pool thread mid-connect —
+    /// handlers must be quick and thread-safe.
+    /// </summary>
+    public event Action<ulong>? FullServiceDiscoveryNeeded;
+
     private BluetoothLEDevice?  _device;
     private GattDeviceService?  _service;
     private GattCharacteristic? _characteristic;
@@ -211,7 +230,7 @@ internal sealed class BleMidiClient : IDisposable
             // Step 3: query the MIDI service, with retries. On a cold stack
             // this can still transiently return Unreachable even after the
             // session is up — 3 tries at 400 ms is enough in practice.
-            if (!await EnsureMidiServiceAsync().ConfigureAwait(false))
+            if (!await EnsureMidiServiceAsync(bluetoothAddress).ConfigureAwait(false))
             {
                 await DisconnectAsync().ConfigureAwait(false);
                 return false;
@@ -329,34 +348,130 @@ internal sealed class BleMidiClient : IDisposable
     }
 
     /// <summary>Resolves the MIDI service with retries to ride out the cold-stack Unreachable window.</summary>
-    private async Task<bool> EnsureMidiServiceAsync()
+    private async Task<bool> EnsureMidiServiceAsync(ulong bluetoothAddress)
     {
-        for (int attempt = 1; attempt <= 3; attempt++)
+        // Performance hint: if the host tells us this device is known to reject
+        // the targeted by-UUID query (observed on the Roland Go:Keys 5), skip the
+        // 3 doomed attempts and go straight to the full-enumeration path that
+        // works for it. Pure optimisation — correctness never depends on it, so a
+        // throwing/incorrect hint provider must not break the connect.
+        bool preferFull = false;
+        try { preferFull = ShouldPreferFullServiceDiscovery?.Invoke(bluetoothAddress) == true; }
+        catch { preferFull = false; }
+
+        if (preferFull)
         {
-            GattDeviceServicesResult? svcResult = null;
-            try
-            {
-                svcResult = await _device!.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached);
-            }
-            catch (Exception ex)
-            {
-                Log?.Invoke($"Service query attempt {attempt}/3 threw {FormatException(ex)}.");
-            }
-            if (svcResult is { Status: GattCommunicationStatus.Success, Services.Count: > 0 })
-            {
-                _service = svcResult.Services[0];
-                return true;
-            }
-            if (svcResult is not null)
-                Log?.Invoke($"Service query attempt {attempt}/3: status={svcResult.Status}, found={svcResult.Services.Count}.");
-            if (attempt < 3) await Task.Delay(400).ConfigureAwait(false);
+            Log?.Invoke("Skipping the targeted by-UUID service query (this device previously needed full enumeration).");
         }
+        else
+        {
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                GattDeviceServicesResult? svcResult = null;
+                try
+                {
+                    svcResult = await _device!.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached);
+                }
+                catch (Exception ex)
+                {
+                    Log?.Invoke($"Service query attempt {attempt}/3 threw {FormatException(ex)}.");
+                }
+                if (svcResult is { Status: GattCommunicationStatus.Success, Services.Count: > 0 })
+                {
+                    _service = svcResult.Services[0];
+                    return true;
+                }
+                if (svcResult is not null)
+                    Log?.Invoke($"Service query attempt {attempt}/3: status={svcResult.Status}, found={svcResult.Services.Count}.");
+                if (attempt < 3) await Task.Delay(400).ConfigureAwait(false);
+            }
+        }
+
+        // Failover (or the preferred path when the hint above is set): some
+        // peripherals/stacks reject the ATT "find-by-type-value" request that
+        // GetGattServicesForUuidAsync issues — observed on the Roland Go:Keys 5,
+        // which throws ERROR_BAD_COMMAND (HRESULT 0x80070016) on every by-UUID
+        // attempt — yet still answer a full primary-service discovery normally.
+        // When reached via fallback this runs ONLY after the normal query has
+        // exhausted its retries, so devices that already work (they resolve on
+        // the first by-UUID attempt and return above) never reach it.
+        if (await TryFindMidiServiceViaFullEnumerationAsync(bluetoothAddress, alreadyKnown: preferFull).ConfigureAwait(false))
+            return true;
 
         Log?.Invoke(
             "MIDI service not found. Most common causes:" +
             "  (1) the device stopped advertising (on the FP-90X: press Function→Bluetooth and toggle Bluetooth On)," +
             "  (2) Windows thinks the device is still connected from a previous session — turn the device off/on, OR" +
-            "  (3) Remove the device under Settings → Bluetooth & devices and retry.");
+            "  (3) Remove the device under Settings → Bluetooth & devices and retry. " +
+            "  (4) On Roland Go:Keys and similar: put the keyboard in Bluetooth pairing mode (long-press Menu) just before connecting.");
+        return false;
+    }
+
+    /// <summary>
+    /// MIDI-service lookup via full primary-service discovery. Used as a failover
+    /// after the targeted by-UUID query in <see cref="EnsureMidiServiceAsync"/>
+    /// has failed every retry, OR directly (when <paramref name="alreadyKnown"/>
+    /// is true) for a device the host has flagged as by-UUID-incompatible.
+    /// Enumerates ALL primary services with a plain <c>GetGattServicesAsync</c>
+    /// and scans for the BLE-MIDI service UUID by hand.
+    ///
+    /// Why this can succeed where the by-UUID call fails: the by-UUID variant
+    /// issues an ATT "Read By Type Value" for the service UUID, which a handful
+    /// of peripherals (observed: Roland Go:Keys 5) reject with ERROR_BAD_COMMAND
+    /// (HRESULT 0x80070016). Full primary-service discovery uses "Read By Group
+    /// Type" instead, which those same devices answer normally.
+    ///
+    /// The first time we learn a device needs this (<paramref name="alreadyKnown"/>
+    /// is false and we succeed), raises <see cref="FullServiceDiscoveryNeeded"/>
+    /// so the host can persist the hint and skip the by-UUID attempts next time.
+    /// </summary>
+    private async Task<bool> TryFindMidiServiceViaFullEnumerationAsync(ulong bluetoothAddress, bool alreadyKnown)
+    {
+        if (!alreadyKnown)
+            Log?.Invoke("Targeted MIDI-service query failed; trying a full GATT service enumeration as a fallback…");
+
+        for (int attempt = 1; attempt <= 2; attempt++)
+        {
+            GattDeviceServicesResult? all = null;
+            try
+            {
+                all = await _device!.GetGattServicesAsync(BluetoothCacheMode.Uncached);
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke($"Full service-discovery attempt {attempt}/2 threw {FormatException(ex)}.");
+            }
+
+            if (all is { Status: GattCommunicationStatus.Success })
+            {
+                foreach (var svc in all.Services)
+                {
+                    if (svc.Uuid == ServiceUuid)
+                    {
+                        _service = svc;
+                        Log?.Invoke(alreadyKnown
+                            ? "MIDI service found via full GATT enumeration."
+                            : "MIDI service found via full GATT enumeration fallback (this device rejected the targeted by-UUID query).");
+                        if (!alreadyKnown)
+                        {
+                            // Let the host persist a per-device hint so the next
+                            // connect skips straight here instead of burning the
+                            // by-UUID retries. Best-effort; never break connect.
+                            try { FullServiceDiscoveryNeeded?.Invoke(bluetoothAddress); } catch { }
+                        }
+                        return true;
+                    }
+                }
+                Log?.Invoke($"Full service-discovery attempt {attempt}/2: device exposes " +
+                            $"{all.Services.Count} service(s), none of them BLE-MIDI.");
+            }
+            else if (all is not null)
+            {
+                Log?.Invoke($"Full service-discovery attempt {attempt}/2: status={all.Status}.");
+            }
+
+            if (attempt < 2) await Task.Delay(400).ConfigureAwait(false);
+        }
         return false;
     }
 
@@ -546,7 +661,7 @@ internal sealed class BleMidiClient : IDisposable
             if (_device is null) { Log?.Invoke("Re-acquire device failed (null)."); return false; }
 
             if (!await OpenGattSessionAsync().ConfigureAwait(false)) return false;
-            if (!await EnsureMidiServiceAsync().ConfigureAwait(false)) return false;
+            if (!await EnsureMidiServiceAsync(bluetoothAddress).ConfigureAwait(false)) return false;
 
             var access = await _service!.RequestAccessAsync();
             if (access != DeviceAccessStatus.Allowed)
@@ -592,9 +707,16 @@ internal sealed class BleMidiClient : IDisposable
             : $"{ex.GetType().Name} HRESULT=0x{ex.HResult:X8} ({hname}): {msg}";
     }
 
-    /// <summary>Friendly names for the Bluetooth ATT HRESULT range.</summary>
+    /// <summary>
+    /// Friendly names for the Bluetooth ATT HRESULT range, plus a couple of
+    /// Win32-wrapped HRESULTs commonly seen during GATT service discovery.
+    /// </summary>
     private static string? NameForHResult(int hresult) => hresult switch
     {
+        // Win32-wrapped (HRESULT_FROM_WIN32). Seen when a device refuses the
+        // operation in its current state — e.g. the Roland Go:Keys 5 rejecting
+        // the targeted by-UUID service query (see EnsureMidiServiceAsync).
+        unchecked((int)0x80070016) => "ERROR_BAD_COMMAND",
         unchecked((int)0x80650001) => "InvalidHandle",
         unchecked((int)0x80650002) => "ReadNotPermitted",
         unchecked((int)0x80650003) => "WriteNotPermitted",
@@ -1092,6 +1214,18 @@ internal sealed class BleMidiClient : IDisposable
                 _      => $"SIG 0x{shortId} characteristic",
             };
         }
+
+        // ISSC / Microchip "Transparent UART" service + characteristics: the
+        // first 4 bytes spell ASCII "ISSC" (0x49 0x53 0x53 0x43). Several BLE
+        // MIDI gadgets (Roland Go:Keys 5 observed) carry this alongside the
+        // standard BLE-MIDI service — it's the BLE module's serial passthrough,
+        // not MIDI-related. Labelling it keeps support logs readable and tells
+        // us the module vendor at a glance.
+        if (s.StartsWith("49535343-", StringComparison.Ordinal))
+            return isService
+                ? "ISSC/Microchip Transparent UART service"
+                : "ISSC/Microchip Transparent UART characteristic";
+
         return "PROPRIETARY — investigate";
     }
 
