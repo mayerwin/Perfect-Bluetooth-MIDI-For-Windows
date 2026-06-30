@@ -10,6 +10,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Shapes;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform;
@@ -78,8 +79,18 @@ public partial class MainWindow : Window
     private Button    _hideToTrayBtn   = null!;
     private ComboBox  _channelCombo    = null!;
     private Button    _detectChannelBtn = null!;
-    private ComboBox  _themeCombo      = null!;
+    private ComboBox  _themeCombo      = null!; // built in BuildSettingsFlyout (lives in the gear flyout)
     private CheckBox  _autoReconnectBox = null!;
+    private Button    _settingsBtn     = null!;
+#if SELF_UPDATE
+    // Update controls live inside the settings flyout, built in code (see
+    // BuildSettingsFlyout). Compiled out entirely in the Store build.
+    private ComboBox  _updateFreqCombo  = null!;
+    private Button    _checkNowBtn       = null!;
+    private TextBlock _updateStatusText  = null!;
+    private int       _updateCheckBusy;        // 0/1 re-entrancy guard
+    private bool      _relaunchAfterQuit;      // set just before an update-triggered quit
+#endif
 
     // Status-pill colours are looked up from the theme at render time — see
     // ThemeBrush(). This is what makes Light/Dark switching re-colour the
@@ -215,6 +226,12 @@ public partial class MainWindow : Window
             // Auto-reconnect after backend setup completes (so the virtual
             // endpoint is already live for DAWs by the time we connect BLE).
             TryAutoReconnect();
+
+#if SELF_UPDATE
+            // Background update check on launch if the configured cadence has
+            // elapsed. Runs last so it never delays bringing the bridge up.
+            MaybeAutoCheckForUpdates();
+#endif
         };
         Closing += OnWindowClosing;
 
@@ -257,8 +274,10 @@ public partial class MainWindow : Window
         _hideToTrayBtn   = this.FindControl<Button>("HideToTrayBtn")!;
         _channelCombo    = this.FindControl<ComboBox>("ChannelCombo")!;
         _detectChannelBtn = this.FindControl<Button>("DetectChannelBtn")!;
-        _themeCombo      = this.FindControl<ComboBox>("ThemeCombo")!;
+        _settingsBtn     = this.FindControl<Button>("SettingsBtn")!;
         _autoReconnectBox = this.FindControl<CheckBox>("AutoReconnectBox")!;
+        // _themeCombo is NOT resolved here — it's created in BuildSettingsFlyout
+        // and lives inside the gear button's flyout (a separate name scope).
     }
 
     // ===================================================================
@@ -524,6 +543,17 @@ public partial class MainWindow : Window
         // process loop could in theory exit before ProcessExit fires.
         try { CrashLog.Flush(); } catch { }
 
+#if SELF_UPDATE
+        // If this quit was triggered by an installed update, launch the new
+        // exe now — AFTER the BLE device + virtual endpoint have been released
+        // above, so the fresh instance doesn't contend for them or the port name.
+        if (_relaunchAfterQuit)
+        {
+            try { UpdateService.Relaunch(); }
+            catch (Exception ex) { CrashLog.Append($"Relaunch after update failed: {ex}"); }
+        }
+#endif
+
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Fire Shutdown on the UI thread, not inside the Closing handler's
@@ -619,6 +649,7 @@ public partial class MainWindow : Window
         _channelCombo.SelectionChanged += (_, _) => OnChannelComboChanged();
         _detectChannelBtn.Click += async (_, _) => await RunDetectAsync();
 
+        BuildSettingsFlyout();   // creates _themeCombo (+ update controls) inside the gear flyout
         InitThemeCombo();
         _themeCombo.SelectionChanged += (_, _) => OnThemeComboChanged();
 
@@ -722,8 +753,307 @@ public partial class MainWindow : Window
         // that the active theme variant changed.
         UpdateStatusPill(_ble.IsConnected);
 
-        AppSettingsStore.Save(new AppSettings { Theme = item.Saved });
+        // Read-modify-write so changing the theme doesn't wipe the rest of
+        // app.json (HostBackend, LastConnectedMac, update settings, …).
+        var s = AppSettingsStore.Load();
+        s.Theme = item.Saved;
+        AppSettingsStore.Save(s);
     }
+
+    // ===================================================================
+    //  Settings flyout (gear button) + self-updater
+    // ===================================================================
+
+    /// <summary>
+    /// Build the settings flyout shown by the gear button. Constructed in code,
+    /// not XAML, because controls declared inside an Avalonia &lt;Flyout&gt; live
+    /// in a separate name scope and wouldn't resolve through the window's
+    /// FindControl wiring. Always holds the theme selector; the update controls
+    /// are included only in self-update builds (the SELF_UPDATE constant).
+    /// </summary>
+    private void BuildSettingsFlyout()
+    {
+        _themeCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+
+        var themeSection = new StackPanel { Spacing = 4 };
+        themeSection.Children.Add(new TextBlock { Text = "Theme", FontWeight = FontWeight.SemiBold });
+        themeSection.Children.Add(_themeCombo);
+
+        var root = new StackPanel { Spacing = 14, Margin = new Thickness(10), MinWidth = 268 };
+        root.Children.Add(new TextBlock { Text = "Settings", FontWeight = FontWeight.Bold, FontSize = 15 });
+        root.Children.Add(themeSection);
+#if SELF_UPDATE
+        root.Children.Add(BuildUpdateSection());
+#endif
+
+        _settingsBtn.Flyout = new Flyout
+        {
+            Content = root,
+            Placement = PlacementMode.BottomEdgeAlignedRight,
+        };
+    }
+
+#if SELF_UPDATE
+    /// <summary>The "Check for updates" block inside the settings flyout.</summary>
+    private Control BuildUpdateSection()
+    {
+        _updateFreqCombo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = new[] { "Never", "Daily", "Weekly", "Monthly" },
+            SelectedItem = NormalizeFreq(AppSettingsStore.Load().UpdateCheckFrequency),
+        };
+        _updateFreqCombo.SelectionChanged += (_, _) => OnUpdateFreqChanged();
+
+        _checkNowBtn = new Button { Content = "Check now" };
+        _checkNowBtn.Click += async (_, _) => await RunUpdateCheckAsync(manual: true);
+
+        _updateStatusText = new TextBlock
+        {
+            Classes = { "sectionSub" },
+            TextWrapping = TextWrapping.Wrap,
+            Text = $"You're on v{UpdateService.CurrentVersion}.",
+        };
+
+        var freqSection = new StackPanel { Spacing = 4 };
+        freqSection.Children.Add(new TextBlock { Text = "Check for updates", FontWeight = FontWeight.SemiBold });
+        freqSection.Children.Add(_updateFreqCombo);
+
+        var section = new StackPanel { Spacing = 8 };
+        section.Children.Add(new Border
+        {
+            Height = 1,
+            Margin = new Thickness(0, 2, 0, 2),
+            Background = new SolidColorBrush(Color.FromArgb(40, 128, 128, 128)), // subtle, theme-agnostic
+        });
+        section.Children.Add(freqSection);
+        section.Children.Add(_checkNowBtn);
+        section.Children.Add(_updateStatusText);
+        return section;
+    }
+
+    private void OnUpdateFreqChanged()
+    {
+        if (_updateFreqCombo.SelectedItem is not string freq) return;
+        var s = AppSettingsStore.Load();
+        s.UpdateCheckFrequency = NormalizeFreq(freq);
+        AppSettingsStore.Save(s);
+        AppendLog($"Update check frequency set to: {s.UpdateCheckFrequency}.");
+    }
+
+    /// <summary>
+    /// Run a background update check on launch if the configured cadence has
+    /// elapsed since the last check. "Never" disables this; the manual "Check
+    /// now" button is unaffected.
+    /// </summary>
+    private void MaybeAutoCheckForUpdates()
+    {
+        try
+        {
+            var s = AppSettingsStore.Load();
+            if (!TryGetCheckInterval(s.UpdateCheckFrequency, out TimeSpan interval)) return; // "Never"
+            if (s.LastUpdateCheckUtc != default && (DateTime.UtcNow - s.LastUpdateCheckUtc) < interval) return;
+            _ = RunUpdateCheckAsync(manual: false); // fire and forget
+        }
+        catch (Exception ex) { AppendLog($"Auto update check skipped: {ex.Message}"); }
+    }
+
+    private async Task RunUpdateCheckAsync(bool manual)
+    {
+        if (Interlocked.Exchange(ref _updateCheckBusy, 1) == 1)
+        {
+            if (manual) SetUpdateStatus("A check is already in progress…");
+            return;
+        }
+        try
+        {
+            _checkNowBtn.IsEnabled = false;
+            SetUpdateStatus("Checking for updates…");
+
+            UpdateService.UpdateInfo? info = null;
+            Exception? error = null;
+            try { info = await UpdateService.CheckAsync(); }
+            catch (Exception ex) { error = ex; }
+
+            // Advance the cadence clock regardless of outcome.
+            var s = AppSettingsStore.Load();
+            s.LastUpdateCheckUtc = DateTime.UtcNow;
+            AppSettingsStore.Save(s);
+
+            if (error is not null)
+            {
+                if (manual) AppendLog($"Update check failed: {error.Message}");
+                SetUpdateStatus($"Couldn't check for updates. You're on v{UpdateService.CurrentVersion}.");
+                return;
+            }
+
+            if (info is null)
+            {
+                SetUpdateStatus($"You're on the latest version (v{UpdateService.CurrentVersion}).");
+                if (manual) AppendLog($"Update check: already on the latest version (v{UpdateService.CurrentVersion}).");
+                return;
+            }
+
+            // A newer version exists. Background checks honour a skipped version;
+            // a manual check always offers it (so the user can change their mind).
+            if (!manual &&
+                string.Equals(s.SkippedUpdateVersion, info.Version.ToString(), StringComparison.Ordinal))
+            {
+                SetUpdateStatus($"v{info.Version} is available (skipped).");
+                return;
+            }
+
+            SetUpdateStatus($"v{info.Version} is available.");
+            AppendLog($"Update available: v{info.Version} (you have v{UpdateService.CurrentVersion}).");
+
+            var choice = await ShowUpdatePromptAsync(info);
+            if (choice == UpdateChoice.Install)
+            {
+                await ApplyUpdateAsync(info);
+            }
+            else if (choice == UpdateChoice.Skip)
+            {
+                var s2 = AppSettingsStore.Load();
+                s2.SkippedUpdateVersion = info.Version.ToString();
+                AppSettingsStore.Save(s2);
+                SetUpdateStatus($"Skipped v{info.Version}.");
+                AppendLog($"Skipping update v{info.Version} (won't auto-prompt again for this version).");
+            }
+            else
+            {
+                SetUpdateStatus($"v{info.Version} is available — install from Settings when ready.");
+            }
+        }
+        finally
+        {
+            _checkNowBtn.IsEnabled = true;
+            Interlocked.Exchange(ref _updateCheckBusy, 0);
+        }
+    }
+
+    private async Task ApplyUpdateAsync(UpdateService.UpdateInfo info)
+    {
+        if (!UpdateService.CanSelfUpdate(out string reason))
+        {
+            AppendLog($"Can't self-update in place ({reason}). Opening the download page instead.");
+            SetUpdateStatus("Opening the download page…");
+            OpenInBrowser(UpdateService.ReleasesPageUrl);
+            return;
+        }
+
+        try
+        {
+            SetUpdateStatus($"Downloading v{info.Version}…");
+            var progress = new Progress<double>(p =>
+                SetUpdateStatus($"Downloading v{info.Version}… {p * 100:0}%"));
+            await UpdateService.StageAsync(info, progress, AppendLog);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Update failed: {ex.Message}. Opening the download page instead.");
+            SetUpdateStatus("Update failed — opening the download page…");
+            OpenInBrowser(UpdateService.ReleasesPageUrl);
+            return;
+        }
+
+        AppendLog($"Update installed. Restarting into v{info.Version}…");
+        SetUpdateStatus("Restarting…");
+        _relaunchAfterQuit = true;
+        // Mirror the other quit entry points: set the guard so the Shutdown()
+        // at the tail of QuitApplicationAsync (which re-fires OnWindowClosing)
+        // doesn't trigger a second teardown — and, critically, a second relaunch.
+        if (_shuttingDown) return;
+        _shuttingDown = true;
+        await QuitApplicationAsync();
+    }
+
+    private void SetUpdateStatus(string text)
+    {
+        if (Dispatcher.UIThread.CheckAccess()) _updateStatusText.Text = text;
+        else Dispatcher.UIThread.Post(() => _updateStatusText.Text = text);
+    }
+
+    private enum UpdateChoice { Later, Install, Skip }
+
+    /// <summary>
+    /// Modal "an update is available" prompt. Built in code to avoid a second
+    /// XAML file for a three-button dialog. Returns the user's choice.
+    /// </summary>
+    private async Task<UpdateChoice> ShowUpdatePromptAsync(UpdateService.UpdateInfo info)
+    {
+        var result = UpdateChoice.Later;
+
+        var content = new StackPanel { Spacing = 14, Margin = new Thickness(22), MinWidth = 400 };
+        content.Children.Add(new TextBlock { Text = "Update available", FontWeight = FontWeight.Bold, FontSize = 16 });
+        content.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Text = $"Version {info.Version} is available — you have v{UpdateService.CurrentVersion}.\n\n" +
+                   "Install it now? The app will download the update, replace itself, and restart.",
+        });
+
+        if (!string.IsNullOrWhiteSpace(info.Notes))
+        {
+            string notes = info.Notes!.Trim();
+            if (notes.Length > 1500) notes = notes[..1500] + "…";
+            content.Children.Add(new ScrollViewer
+            {
+                MaxHeight = 200,
+                Content = new TextBlock { Text = notes, TextWrapping = TextWrapping.Wrap, Classes = { "sectionSub" } },
+            });
+        }
+
+        var dlg = new Window
+        {
+            Title = "Update available",
+            SizeToContent = SizeToContent.WidthAndHeight,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false,
+            Background = Background,
+            Icon = Icon,
+        };
+
+        var installBtn = new Button { Content = "Install and restart", Classes = { "accent" }, IsDefault = true };
+        installBtn.Click += (_, _) => { result = UpdateChoice.Install; dlg.Close(); };
+        var skipBtn = new Button { Content = "Skip this version" };
+        skipBtn.Click += (_, _) => { result = UpdateChoice.Skip; dlg.Close(); };
+        var laterBtn = new Button { Content = "Later", IsCancel = true };
+        laterBtn.Click += (_, _) => { result = UpdateChoice.Later; dlg.Close(); };
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        buttons.Children.Add(skipBtn);
+        buttons.Children.Add(laterBtn);
+        buttons.Children.Add(installBtn);
+        content.Children.Add(buttons);
+
+        dlg.Content = content;
+        await dlg.ShowDialog(this);
+        return result;
+    }
+
+    private static bool TryGetCheckInterval(string? freq, out TimeSpan interval)
+    {
+        switch (NormalizeFreq(freq))
+        {
+            case "Daily":   interval = TimeSpan.FromDays(1);  return true;
+            case "Weekly":  interval = TimeSpan.FromDays(7);  return true;
+            case "Monthly": interval = TimeSpan.FromDays(30); return true;
+            default:        interval = default;               return false; // "Never"
+        }
+    }
+
+    private static string NormalizeFreq(string? freq) => freq switch
+    {
+        "Never" or "Daily" or "Weekly" or "Monthly" => freq!,
+        _ => "Monthly",
+    };
+#endif
 
     private void InitChannelCombo()
     {

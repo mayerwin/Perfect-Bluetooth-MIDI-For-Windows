@@ -49,13 +49,19 @@
                   Orientation="Horizontal"
                   VerticalAlignment="Center"
                   Spacing="8">
-        <!-- Theme selector — 3 options, System default. Sits at the left of
-             the status pill per the design. Items populated in code-behind. -->
-        <ComboBox x:Name="ThemeCombo"
-                  MinWidth="110"
-                  Margin="0,0,16,0"
-                  VerticalAlignment="Center"
-                  ToolTip.Tip="Switch between Light, Dark, and System-follow theme."/>
+        <!-- Settings: a gear button at the left of the connection status. Opens
+             a flyout (built in code-behind — see BuildSettingsFlyout) that holds
+             the theme selector and, in self-update builds, the update controls.
+             The flyout content lives in code, not here, because controls inside
+             an Avalonia Flyout are in a separate name scope and wouldn't resolve
+             via the window's FindControl wiring. -->
+        <Button x:Name="SettingsBtn"
+                Margin="0,0,8,0"
+                Padding="7,3"
+                VerticalAlignment="Center"
+                ToolTip.Tip="Settings (theme, updates)">
+          <TextBlock Text="&#x2699;" FontFamily="Segoe UI Symbol" FontSize="15"/>
+        </Button>
         <Ellipse x:Name="StatusDot"
                  Classes="statusDot"/>
         <TextBlock x:Name="StatusText"

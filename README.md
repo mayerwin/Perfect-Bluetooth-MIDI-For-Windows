@@ -65,7 +65,13 @@ The bridge picks one of two host-side surfaces automatically:
 - **Verbose BLE/MIDI diagnostics** at the flick of a checkbox — status-byte
   names + hex dumps for every message in both directions, including on-connect
   GATT service/characteristic enumeration.
-- **Light / dark / system theme** picker in the header.
+- **Settings menu (⚙)** at the top-right (left of the connection status)
+  holds the light / dark / system theme picker and the update preferences.
+- **Automatic updates** — checks GitHub for new releases (**Monthly** by
+  default; also Daily / Weekly / Never, plus a **Check now** button) and
+  installs them in one click: downloads the new exe, verifies its SHA-256
+  against the release checksum, swaps itself in place, and relaunches. Set the
+  cadence to **Never** to turn it off. See [Automatic updates](#automatic-updates).
 - **Hide-to-tray** keeps the bridge running in the background. Closing the
   window cleanly unpairs the device on exit so it's released for other
   hosts (phone apps, another PC) rather than stuck bonded to Windows.
@@ -200,6 +206,39 @@ Closing the window exits the app. Click **Hide to tray** if you want the
 bridge to keep running in the background — bring the window back (or exit
 properly) from the tray icon's right-click menu.
 
+### Automatic updates
+
+The app keeps itself up to date straight from its GitHub
+[Releases](../../releases) — there's no installer and no separate updater
+process to manage.
+
+- **Pick how often it checks.** Open the **⚙ Settings** menu (gear icon at the
+  top-right, just left of the connection status) and choose a cadence under
+  **Check for updates**: **Never**, **Daily**, **Weekly**, or **Monthly** (the
+  default). The check runs quietly in the background a moment after launch once
+  that interval has elapsed — it never blocks startup or interrupts playing.
+- **Check on demand.** The same menu has a **Check now** button to look
+  immediately, whatever the cadence is set to.
+- **You're always asked first.** When a newer version exists you get a prompt
+  showing the new version number and its release notes, with three choices:
+  **Install and restart**, **Skip this version** (it won't auto-prompt for
+  that specific version again), or **Later**. Nothing is downloaded or changed
+  until you choose *Install*.
+- **What installing does.** It downloads the new `PerfectBluetoothMidi.exe`,
+  **verifies it against the release's published SHA-256 checksum** over HTTPS,
+  replaces the running exe in place, and relaunches into the new version. Your
+  BLE device is released cleanly first, so the new instance reconnects on its
+  own. If the app's folder isn't writable (for example it's in a protected
+  location like *Program Files*), it skips the in-place swap and just opens the
+  download page so you can replace it manually.
+- **Turning it off.** Set the cadence to **Never** and the background check
+  stops entirely. (The **Check now** button still works if you ever want to
+  look manually.)
+
+> Updates only flow *forward from a build that has this feature*. The first
+> release that includes the updater is **v1.5.0** — install that one manually
+> from the Releases page, and every release after it can update automatically.
+
 ## A great way to try it out
 
 [**Midiano**](https://app.midiano.com/) is a beautiful Chrome Web MIDI app
@@ -311,6 +350,12 @@ cd Perfect-Bluetooth-MIDI-For-Windows
 Or open `PerfectBluetoothMidi.sln` in Visual Studio 2026 and **Publish**
 (target `win-x64`, framework-dependent, single file).
 
+The built-in [self-updater](#automatic-updates) is enabled by default. To
+produce a build **without** it — e.g. for the Microsoft Store, which delivers
+its own updates and disallows apps that self-update — publish with
+`-p:EnableSelfUpdate=false`. That strips the updater code and its UI at compile
+time (the ⚙ Settings menu then shows only the theme picker).
+
 ### Source layout
 
 ```
@@ -330,7 +375,8 @@ PerfectBluetoothMidi/
 ├── BleMidiParser.cs          # BLE-MIDI 1.0 framing: decode + encode
 ├── ChannelDetector.cs        # N-notes-per-channel auto-detector
 ├── DeviceSettings.cs         # per-MAC persistence
-├── AppSettings.cs            # global settings (theme, backend, virtual port name)
+├── AppSettings.cs            # global settings (theme, backend, virtual port name, update cadence)
+├── UpdateService.cs          # self-updater (GitHub releases → SHA-256 → in-place swap); SELF_UPDATE-gated
 ├── WinMMMidi.cs              # P/Invoke wrapper for midiIn*/midiOut* (WMS-replumbed)
 └── Diag.cs                   # shared verbose-logging flag + hex helpers
 ```

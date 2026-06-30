@@ -63,7 +63,10 @@ Flow:
         WmsRuntime.cs              ← SDK init/detection + UMP ⇄ MIDI 1.0 helpers
         ChannelDetector.cs         ← N-ascending-notes-per-channel auto-detector
         DeviceSettings.cs          ← per-MAC settings persistence (devices.json)
-        AppSettings.cs             ← global settings: theme, HostBackend, VirtualPortName
+        AppSettings.cs             ← global settings: theme, HostBackend, VirtualPortName, update cadence
+        UpdateService.cs           ← self-updater (GitHub releases → SHA-256 verify
+                                     → in-place exe swap → relaunch). Whole file is
+                                     gated behind the SELF_UPDATE compile constant.
         WinMMMidi.cs               ← tiny P/Invoke wrapper over the legacy MM API
         Diag.cs                    ← verbose-logging toggle + hex helpers
         app.ico / app.manifest
@@ -114,6 +117,24 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   register it in `DeviceSettingsJsonContext` via `[JsonSerializable]` —
   `JsonSerializer.Deserialize<T>(string, options)` reflection overloads will
   warn under trim and may fail at runtime.
+- **Self-update** (`UpdateService.cs`): portable-exe updater for the GitHub
+  release channel. Checks `releases/latest`, compares the `tag_name` to the
+  running assembly version, downloads the `PerfectBluetoothMidi.exe` asset over
+  HTTPS, verifies it against the asset's `digest` (`sha256:…`, exposed by GitHub
+  since 2025), then does the in-place swap: rename the running exe → `*.old`
+  (Windows allows renaming a *running* image, just not overwriting it), move the
+  new exe into place, `Process.Start` it, quit. The leftover `*.old` is deleted
+  next launch by `CleanupLeftovers` (called from `Program.cs`). GitHub JSON is
+  parsed with `JsonDocument` (reflection-free) so it stays trim-safe without a
+  source-gen context. The relaunch happens inside `QuitApplicationAsync` AFTER
+  the BLE device + virtual endpoint are released, so the fresh instance doesn't
+  fight the old one for the device or the port name — and the `_shuttingDown`
+  guard must be set before that call or `Shutdown()` re-enters and relaunches
+  twice. The WHOLE feature (code + the gear-flyout's update controls) compiles
+  out when `EnableSelfUpdate=false`: publish the Microsoft Store build with
+  `dotnet publish -p:EnableSelfUpdate=false` so the self-update code is *absent*
+  (Store policy forbids apps that update outside the Store), leaving the gear
+  flyout with just the theme selector.
 - **WMS App SDK detection**: lives in `WmsRuntime.EnsureInitialized` and is
   cached for the process lifetime — first call tries `Microsoft.Windows.
   Devices.Midi2.Initialization.MidiDesktopAppSdkInitializer.Create()`, then

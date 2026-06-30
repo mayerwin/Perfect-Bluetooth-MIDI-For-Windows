@@ -56,6 +56,31 @@ public sealed class AppSettings
     /// to know which advertisement to act on.
     /// </summary>
     public string LastConnectedMac { get; set; } = "";
+
+    /// <summary>
+    /// How often the self-updater checks GitHub for a newer release:
+    /// "Never", "Daily", "Weekly", or "Monthly" (default). Anything else is
+    /// treated as "Monthly". "Never" disables the automatic background check
+    /// entirely — the "Check now" button still works. Ignored completely in a
+    /// build published with <c>-p:EnableSelfUpdate=false</c> (e.g. the Store
+    /// build), where the updater isn't compiled in.
+    /// </summary>
+    public string UpdateCheckFrequency { get; set; } = "Monthly";
+
+    /// <summary>
+    /// UTC timestamp of the last completed update check (manual or automatic).
+    /// Default (<c>DateTime.MinValue</c>) means "never checked", so the first
+    /// launch with a non-"Never" cadence checks straight away.
+    /// </summary>
+    public DateTime LastUpdateCheckUtc { get; set; }
+
+    /// <summary>
+    /// A release version the user chose to skip (e.g. "1.5.0"). The automatic
+    /// check won't re-prompt for this exact version, but a manual "Check now"
+    /// ignores it so the user can always pull it up again. Empty = nothing
+    /// skipped.
+    /// </summary>
+    public string SkippedUpdateVersion { get; set; } = "";
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]

@@ -87,6 +87,13 @@ internal static class Program
             if (CliHost.IsCliInvocation(args))
                 return CliHost.RunAsync(args).GetAwaiter().GetResult();
 
+#if SELF_UPDATE
+            // Remove any leftover *.old backup left behind by a prior in-place
+            // self-update (the old exe couldn't be deleted until this, the new
+            // process, started). Best-effort and silent.
+            UpdateService.CleanupLeftovers();
+#endif
+
             // GUI mode. ShutdownMode.OnExplicitShutdown lets the close
             // button close the window without auto-killing the process —
             // QuitApplicationAsync owns the actual Shutdown() call.
