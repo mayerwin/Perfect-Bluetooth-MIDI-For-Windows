@@ -277,6 +277,7 @@ internal sealed class BleMidiClient : IDisposable
             // Works pairing still completes in the background without UI,
             // so this costs ~100-500 ms on first connect and nothing on
             // subsequent connects (Windows caches the bond).
+            bool wasAlreadyPaired = _device!.DeviceInformation.Pairing.IsPaired;
             if (!await PairIfNeededAsync(bluetoothAddress, force: false).ConfigureAwait(false))
             {
                 // Not fatal: some devices work fine unbonded. Keep going;
@@ -284,6 +285,24 @@ internal sealed class BleMidiClient : IDisposable
                 // if the CCCD write actually does return an auth error.
                 Log?.Invoke("Proactive pairing did not succeed — continuing without bond. " +
                             "If MIDI IN is silently ignored by the device, that's why.");
+            }
+
+            // Whether it succeeded or failed, an ATTEMPTED pairing negotiation
+            // can bounce the ACL link (observed: some devices drop/reconnect
+            // mid-negotiation even on a failed Just Works attempt). That
+            // invalidates the service/characteristic handles we resolved
+            // before pairing — using them afterward throws
+            // ObjectDisposedException, which then cascades into a bogus
+            // second PairAsync call throwing InvalidOperationException. Only
+            // skip the rebind when pairing was a no-op (already paired).
+            if (!wasAlreadyPaired)
+            {
+                if (!await RebindCharacteristicAsync(bluetoothAddress).ConfigureAwait(false))
+                {
+                    Log?.Invoke("Could not re-acquire the MIDI characteristic after pairing.");
+                    await DisconnectAsync().ConfigureAwait(false);
+                    return false;
+                }
             }
 
             // Step 4b+5: enable notifications, pairing lazily if the device
