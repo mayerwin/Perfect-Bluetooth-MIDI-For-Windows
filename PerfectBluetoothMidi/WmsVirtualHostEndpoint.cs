@@ -171,28 +171,86 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
         Cleanup();
     }
 
+    /// <summary>
+    /// Tear the endpoint down in the exact reverse of <see cref="Open"/>.
+    ///
+    /// Order and completeness matter more here than anywhere else in the app.
+    /// There is NO RemoveVirtualDevice API — MidiVirtualDeviceManager exposes
+    /// only CreateVirtualDevice — so the service reclaims the device solely by
+    /// noticing that its client disconnected cleanly. A teardown that is
+    /// skipped, half-finished, or killed by process exit mid-call can leave the
+    /// WMS service wedged: the port never comes back on the next launch, and
+    /// even the MIDI Settings app hangs on "Starting MIDI service…" until the
+    /// machine is rebooted. That is issue #4.
+    ///
+    /// Consequences for callers: never fire-and-forget this. Await it, off the
+    /// UI thread, and let the process exit only once it has returned (or a
+    /// timeout has elapsed).
+    ///
+    /// Each step is logged before it runs, because these calls go into the
+    /// separately-installed SDK runtime and can block indefinitely; the last
+    /// line in the log is how we learn which one hung.
+    /// </summary>
     private void Cleanup()
     {
         lock (_gate)
         {
-            try
+            var connection = _connection;
+            var virtualDevice = _virtualDevice;
+
+            if (connection is not null)
             {
-                if (_connection is not null)
+                try { connection.MessageReceived -= OnConnectionMessageReceived; } catch { }
+
+                // Counterpart to the AddMessageProcessingPlugin in Open().
+                // Without it the virtual device stays registered as a plugin on
+                // a connection we are about to drop, and in the rc-4 SDK the
+                // plugin's own Cleanup() is not reliably invoked on disconnect
+                // (Microsoft changed exactly this in the in-box dev previews:
+                // "When you Remove an endpoint message listener, Cleanup() is
+                // now called on it before removal").
+                if (virtualDevice is not null)
                 {
-                    try { _connection.MessageReceived -= OnConnectionMessageReceived; } catch { }
-                    if (_session is not null)
+                    try
                     {
-                        try { _session.DisconnectEndpointConnection(_connection.ConnectionId); } catch { }
+                        Log?.Invoke("[teardown] removing the virtual-device message plugin…");
+                        // Takes the plugin's Id, not the plugin instance, and
+                        // Id lives on the plugin interface rather than on
+                        // MidiVirtualDevice itself, so the cast is required.
+                        connection.RemoveMessageProcessingPlugin(
+                            ((IMidiEndpointMessageProcessingPlugin)virtualDevice).PluginId);
                     }
+                    catch (Exception ex) { Log?.Invoke($"[teardown] plugin removal failed: {ex.Message}"); }
+                }
+
+                if (_session is not null)
+                {
+                    try
+                    {
+                        Log?.Invoke("[teardown] disconnecting the endpoint connection…");
+                        _session.DisconnectEndpointConnection(connection.ConnectionId);
+                    }
+                    catch (Exception ex) { Log?.Invoke($"[teardown] disconnect failed: {ex.Message}"); }
                 }
             }
-            catch { }
+
             _connection = null;
             _virtualDevice = null;
-            try { _session?.Dispose(); } catch { }
-            _session = null;
+
+            if (_session is not null)
+            {
+                try
+                {
+                    Log?.Invoke("[teardown] disposing the MIDI session…");
+                    _session.Dispose();
+                }
+                catch (Exception ex) { Log?.Invoke($"[teardown] session dispose failed: {ex.Message}"); }
+                _session = null;
+            }
+
             _receiver.Reset();
             _opened = false;
+            Log?.Invoke($"[teardown] virtual endpoint '{DisplayName}' released.");
         }
     }
 

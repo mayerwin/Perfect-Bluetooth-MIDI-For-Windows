@@ -121,6 +121,30 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   `QuitApplicationAsync` (on thread-pool), which unpairs + disposes off the UI
   thread to avoid the WinRT-sync-context deadlock that used to hang the app
   on quit. Don't re-introduce sync-over-async from the UI thread.
+- **Two discovery paths, not one**: `BleMidiClient.StartScan` (advertisement
+  watcher) finds only devices broadcasting right now.
+  `FindPairedDevicesAsync` sweeps devices already bonded to Windows and reads
+  their CACHED GATT database (no radio traffic, no connect). Many BLE-MIDI
+  peripherals — pedal controllers especially (M-Vave / Cuvave, issue \#3) —
+  stop advertising once bonded, so they are invisible to the watcher forever.
+  The FP-90X masked this for months because it advertises whenever its
+  Bluetooth screen is open. Both paths feed the same list; run both.
+  Consequence: a device found ONLY via the paired sweep must be connected with
+  `ConnectAsync(removeStaleBond: false)`. `TryRemoveStaleBondAsync` would
+  otherwise wipe the very bond that made it visible, and since it does not
+  advertise we could never find it again. `MainWindow._pairedOnlyDevices`
+  tracks which addresses those are.
+- **Virtual endpoint teardown is not fire-and-forget**: there is NO
+  `RemoveVirtualDevice` API (`MidiVirtualDeviceManager` exposes only
+  `CreateVirtualDevice`), so the service reclaims the device solely by seeing
+  its client disconnect cleanly. `CloseVirtualEndpointAsync` must be AWAITED
+  before `Shutdown()`; the old `_ = Task.Run(() => ep.Dispose())` let process
+  exit kill the disconnect mid-call and wedged the whole WMS service — the
+  port never returned and even the MIDI Settings app hung on "Starting MIDI
+  service…" until reboot (issue \#4). `Cleanup()` must also mirror `Open()`
+  exactly, including `RemoveMessageProcessingPlugin` (takes the plugin's
+  `PluginId`, via a cast to `IMidiEndpointMessageProcessingPlugin`). Keep the
+  teardown timeout so a hung SDK call can't block quitting.
 - **Where files go** (`AppPaths.cs`): the app is portable. EVERY file it
   writes goes in `PerfectBluetoothMidi.data` next to the exe — `app.json`,
   `devices.json`, `startup.marker`, `PerfectBluetoothMidi.crash.log`. Never

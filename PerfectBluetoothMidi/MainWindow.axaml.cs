@@ -137,6 +137,19 @@ public partial class MainWindow : Window
     /// </summary>
     private ulong _autoConnectAddr;
     private readonly List<(ulong addr, string name)> _foundDevices = new();
+    /// <summary>
+    /// Addresses that were found ONLY via the paired-device sweep, not by
+    /// advertisement. Connecting to these must not wipe the Windows bond: the
+    /// bond is the only reason we can see them at all. See
+    /// BleMidiClient.ConnectAsync(removeStaleBond:).
+    /// </summary>
+    private readonly HashSet<ulong> _pairedOnlyDevices = new();
+
+    /// <summary>Was this address found only as a bonded device, never advertising?</summary>
+    private bool IsPairedOnly(ulong addr)
+    {
+        lock (_foundDevicesLock) return _pairedOnlyDevices.Contains(addr);
+    }
     private readonly object _foundDevicesLock = new();
 
     private TrayIcon? _trayIcon;
@@ -515,7 +528,10 @@ public partial class MainWindow : Window
         try { StopScanInternal(); } catch { }
         try { _bridge.Dispose(); } catch { }
         try { ReleaseBridgeEndpoint(); } catch { }
-        try { CloseVirtualEndpoint(); } catch { }
+        // Awaited, not fire-and-forget: see CloseVirtualEndpointAsync. Letting
+        // Shutdown() race an in-flight WMS disconnect is what wedged the
+        // service in #4.
+        try { await CloseVirtualEndpointAsync().ConfigureAwait(true); } catch { }
 
         // User-requested guarantee: always release the BLE device cleanly on
         // exit so other consumers (phone apps, another PC) can take it.
@@ -1345,7 +1361,7 @@ public partial class MainWindow : Window
     private void StartScan()
     {
         _devicesList.ItemsSource = null;
-        lock (_foundDevicesLock) _foundDevices.Clear();
+        lock (_foundDevicesLock) { _foundDevices.Clear(); _pairedOnlyDevices.Clear(); }
         UpdateConnectEnable();
 
         StopScanInternal();
@@ -1389,6 +1405,42 @@ public partial class MainWindow : Window
             AppendLog($"Failed to start scan: {ex.Message}");
             return;
         }
+
+        // Devices that are bonded but not advertising never reach the watcher
+        // above, so sweep the paired list too and merge the results in. Runs
+        // concurrently with the 15s advertisement scan and is best-effort: a
+        // failure here leaves the normal scan untouched. See
+        // BleMidiClient.FindPairedDevicesAsync and issue #3.
+        _ = _ble.FindPairedDevicesAsync((addr, name) =>
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (Volatile.Read(ref _scanGeneration) != gen) return;
+                lock (_foundDevicesLock)
+                {
+                    // The watcher may have already reported it; first one wins.
+                    foreach (var (existing, _) in _foundDevices)
+                        if (existing == addr) return;
+                    _foundDevices.Add((addr, name));
+                    _pairedOnlyDevices.Add(addr);
+                }
+                items.Add($"{name}   [{FormatAddr(addr)}]  (paired)");
+                _devicesList.ItemsSource = null;
+                _devicesList.ItemsSource = items;
+                if (_devicesList.SelectedIndex < 0 && items.Count > 0)
+                    _devicesList.SelectedIndex = 0;
+
+                if (_autoConnectAddr != 0 && addr == _autoConnectAddr)
+                {
+                    ulong target = _autoConnectAddr;
+                    _autoConnectAddr = 0;
+                    _devicesList.SelectedIndex = items.Count - 1;
+                    AppendLog($"Auto-reconnect: found paired device {FormatAddr(target)}, connecting…");
+                    StopScanInternal();
+                    _ = ToggleConnectionAsync();
+                }
+            });
+        });
 
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
         _scanTimer.Tick += (_, _) =>
@@ -1476,7 +1528,7 @@ public partial class MainWindow : Window
         _connectBtn.Content   = "Connecting…";
 
         bool ok;
-        try { ok = await _ble.ConnectAsync(pick.addr); }
+        try { ok = await _ble.ConnectAsync(pick.addr, removeStaleBond: !IsPairedOnly(pick.addr)); }
         catch (Exception ex) { AppendLog($"ConnectAsync threw: {ex.Message}"); ok = false; }
 
         if (!ok)
@@ -1672,32 +1724,48 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Dispose the long-lived virtual endpoint if any. Called when leaving
-    /// Virtual mode, when re-creating under a new name, and on app exit.
-    /// Run off the UI thread because WMS dispose / DisconnectEndpointConnection
-    /// can also be synchronous and slow.
+    /// Release the long-lived virtual endpoint and WAIT for it, off the UI
+    /// thread. Called when leaving Virtual mode, when re-creating under a new
+    /// name, and on app exit.
+    ///
+    /// This used to be fire-and-forget (`_ = Task.Run(...)`), which raced the
+    /// process exit on the quit path: Shutdown() could kill the process while
+    /// the WMS session disconnect was still in flight, leaving the service
+    /// holding a half-released virtual device. The symptom was brutal and
+    /// system-wide — on the next launch the port never came back, and even the
+    /// MIDI Settings app hung on "Starting MIDI service…" until reboot (#4).
+    /// The same race also let a rename/backend-switch start creating the new
+    /// endpoint before the old one had let go of the name.
+    ///
+    /// The timeout is the counterweight: a genuinely hung SDK call must not
+    /// stop the user quitting. If we hit it we say so and carry on, since a
+    /// stuck teardown is exactly when the log matters most.
     /// </summary>
     private async Task CloseVirtualEndpointAsync()
     {
         var ep = _virtualEndpoint;
         if (ep is null) return;
         _virtualEndpoint = null;
-        await Task.Run(() => { try { ep.Dispose(); } catch { } }).ConfigureAwait(true);
+
+        // Dispose goes into the SDK's native runtime, so keep it off the UI
+        // thread — every other heavy WMS call in this class already does.
+        var dispose = Task.Run(() => { try { ep.Dispose(); } catch { } });
+        var completed = await Task.WhenAny(dispose, Task.Delay(VirtualEndpointTeardownTimeoutMs))
+                                  .ConfigureAwait(true);
+        if (completed != dispose)
+        {
+            AppendLog($"Virtual endpoint teardown did not finish within " +
+                      $"{VirtualEndpointTeardownTimeoutMs / 1000}s. Continuing anyway; if the MIDI port is " +
+                      "missing on the next launch, the Windows MIDI Services service may need a restart.");
+        }
     }
 
     /// <summary>
-    /// Synchronous best-effort dispose for shutdown paths
-    /// (<see cref="QuitApplicationAsync"/>) that don't await per-step.
-    /// Fires Dispose on the thread pool and doesn't wait — the OS will
-    /// reclaim WMS handles when the process exits anyway.
+    /// How long to wait for the WMS teardown before giving up on it. Generous
+    /// enough for a slow-but-working service, short enough that quitting never
+    /// feels hung.
     /// </summary>
-    private void CloseVirtualEndpoint()
-    {
-        var ep = _virtualEndpoint;
-        if (ep is null) return;
-        _virtualEndpoint = null;
-        _ = Task.Run(() => { try { ep.Dispose(); } catch { } });
-    }
+    private const int VirtualEndpointTeardownTimeoutMs = 5000;
 
     // ===================================================================
     //  Log
@@ -1967,7 +2035,7 @@ public partial class MainWindow : Window
             }
 
             bool ok;
-            try { ok = await _ble.ConnectAsync(addr); }
+            try { ok = await _ble.ConnectAsync(addr, removeStaleBond: !IsPairedOnly(addr)); }
             catch (Exception ex) { AppendLog($"Reconnect after backend switch: {ex.Message}"); ok = false; }
             if (!ok)
             {
@@ -2086,7 +2154,7 @@ public partial class MainWindow : Window
             // Reconnect BLE to the same device. Same retry semantics as a
             // normal Connect — BleMidiClient handles the pairing dance.
             bool ok;
-            try { ok = await _ble.ConnectAsync(addr); }
+            try { ok = await _ble.ConnectAsync(addr, removeStaleBond: !IsPairedOnly(addr)); }
             catch (Exception ex) { AppendLog($"Reconnect after rename failed: {ex.Message}"); ok = false; }
             if (!ok)
             {

@@ -246,7 +246,26 @@ internal static class CliHost
         write($"Scanning for {opts.ScanSeconds}s…");
         await Task.Delay(TimeSpan.FromSeconds(opts.ScanSeconds)).ConfigureAwait(false);
         try { watcher.Stop(); } catch { }
-        write($"Scan complete. {found.Count} device(s) found.");
+
+        // Devices that are bonded to Windows but not advertising are invisible
+        // to the watcher above, so sweep the paired list as well. Reported for
+        // the M-Vave / Cuvave Chocolate Plus in issue #3.
+        int advertising = found.Count;
+        await ble.FindPairedDevicesAsync((addr, name) =>
+        {
+            lock (seen)
+            {
+                if (seen.Add(addr))
+                {
+                    found.Add((addr, name));
+                    write($"FOUND  {FormatAddr(addr)}   {name}   (paired, not advertising)");
+                }
+            }
+        }).ConfigureAwait(false);
+
+        int pairedOnly = found.Count - advertising;
+        write($"Scan complete. {found.Count} device(s) found " +
+              $"({advertising} advertising, {pairedOnly} paired but not advertising).");
         return found.Count > 0 ? 0 : 3;
     }
 

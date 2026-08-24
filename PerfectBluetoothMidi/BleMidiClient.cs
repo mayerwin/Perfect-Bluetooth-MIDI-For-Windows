@@ -111,6 +111,10 @@ internal sealed class BleMidiClient : IDisposable
     /// <summary>BLE MAC of the currently-connected device (0 when none).</summary>
     public ulong CurrentAddress => Volatile.Read(ref _currentAddress);
 
+    // Set per-connect by ConnectAsync. False for devices discovered as already
+    // paired, where removing the bond would lose the device entirely.
+    private bool _removeStaleBond = true;
+
     private int _transmitChannel; // 0 = pass-through; 1..16 = rewrite channel nibble to this
     /// <summary>
     /// If 1..16, all channel-scoped outgoing messages (NoteOn/Off, CC, PC, PitchBend,
@@ -174,6 +178,111 @@ internal sealed class BleMidiClient : IDisposable
     }
 
     /// <summary>
+    /// Find BLE-MIDI devices that are already bonded to Windows, whether or not
+    /// they are advertising right now.
+    ///
+    /// Why this exists alongside <see cref="StartScan"/>: the advertisement
+    /// watcher only ever sees devices that are actively broadcasting. Plenty of
+    /// BLE-MIDI peripherals — pedal-style controllers especially (M-Vave /
+    /// Cuvave Chocolate Plus reported in issue #3) — stop advertising the
+    /// moment they are bonded and auto-connected to a host. Those devices are
+    /// invisible to a scan no matter how long it runs, which is why they show
+    /// up in apps that enumerate bonded devices (MIDIberry, BLE-MIDI Connect)
+    /// but never showed up here. The FP-90X hid this gap for a long time
+    /// because it advertises continuously whenever its Bluetooth screen is open.
+    ///
+    /// Uses <see cref="BluetoothCacheMode.Cached"/> throughout: we are reading
+    /// Windows' stored GATT database for an already-bonded device, so this
+    /// needs no radio traffic, cannot disturb an existing connection, and
+    /// returns fast. A device that is bonded but has never had its services
+    /// enumerated may be missed; that is an acceptable trade for not poking
+    /// every paired device on the machine on every scan.
+    ///
+    /// Best-effort throughout — a failure here must never break the normal
+    /// advertisement scan, which stays the primary discovery path.
+    /// </summary>
+    public async Task FindPairedDevicesAsync(Action<ulong, string> onFound)
+    {
+        List<DeviceInformation> paired;
+        try
+        {
+            string selector = BluetoothLEDevice.GetDeviceSelectorFromPairingState(true);
+            var found = await DeviceInformation.FindAllAsync(selector);
+            paired = found.ToList();
+        }
+        catch (Exception ex)
+        {
+            Log?.Invoke($"Paired-device lookup failed ({FormatException(ex)}); advertisement scan continues.");
+            return;
+        }
+
+        if (Diag.Verbose)
+            Log?.Invoke($"Paired-device lookup: {paired.Count} bonded BLE device(s) to check for a MIDI service.");
+
+        foreach (var info in paired)
+        {
+            BluetoothLEDevice? dev = null;
+            try
+            {
+                dev = await BluetoothLEDevice.FromIdAsync(info.Id);
+                if (dev is null) continue;
+                if (!await HasCachedMidiServiceAsync(dev).ConfigureAwait(false)) continue;
+
+                string name = string.IsNullOrWhiteSpace(dev.Name) ? "(unnamed)" : dev.Name;
+                Log?.Invoke($"Paired BLE MIDI device (not advertising): '{name}' {FormatAddress(dev.BluetoothAddress)}.");
+                onFound(dev.BluetoothAddress, name);
+            }
+            catch (Exception ex)
+            {
+                if (Diag.Verbose)
+                    Log?.Invoke($"Paired-device check skipped for '{info.Name}': {FormatException(ex)}.");
+            }
+            finally
+            {
+                try { dev?.Dispose(); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Does this bonded device expose the BLE-MIDI service according to
+    /// Windows' cached GATT database? Tries the targeted by-UUID lookup first,
+    /// then a full cached enumeration — the same two-step used on the connect
+    /// path, because some peripherals (Roland Go:Keys 5) reject by-UUID queries
+    /// outright. Never connects.
+    /// </summary>
+    private static async Task<bool> HasCachedMidiServiceAsync(BluetoothLEDevice dev)
+    {
+        try
+        {
+            var byUuid = await dev.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Cached);
+            if (byUuid.Status == GattCommunicationStatus.Success && byUuid.Services.Count > 0)
+            {
+                foreach (var s in byUuid.Services) { try { s.Dispose(); } catch { } }
+                return true;
+            }
+        }
+        catch { /* fall through to full enumeration */ }
+
+        try
+        {
+            var all = await dev.GetGattServicesAsync(BluetoothCacheMode.Cached);
+            if (all.Status != GattCommunicationStatus.Success) return false;
+            bool hit = false;
+            foreach (var s in all.Services)
+            {
+                if (s.Uuid == ServiceUuid) hit = true;
+                try { s.Dispose(); } catch { }
+            }
+            return hit;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Connect, retrying up to <paramref name="maxAttempts"/> times (500 ms
     /// between attempts) because a single unbond-then-connect round trip
     /// sometimes races with the Windows BLE stack settling. Each attempt
@@ -181,8 +290,23 @@ internal sealed class BleMidiClient : IDisposable
     /// <see cref="TryConnectOnceAsync"/> calls <see cref="DisconnectAsync"/>
     /// + <see cref="TryRemoveStaleBondAsync"/> again.
     /// </summary>
-    public async Task<bool> ConnectAsync(ulong bluetoothAddress, int maxAttempts = 20, int retryDelayMs = 500)
+    /// <summary>
+    /// <paramref name="removeStaleBond"/> should be false for a device that was
+    /// discovered through <see cref="FindPairedDevicesAsync"/> rather than by
+    /// advertisement. Such a device is only visible to us BECAUSE it is bonded:
+    /// wiping the bond would sever the link and, since it does not advertise,
+    /// we would have no way to find it again. The user would have to re-pair by
+    /// hand in Windows Settings. For advertising devices the wipe stays on, as
+    /// it fixes a real class of stale-bond failures (see
+    /// <see cref="TryRemoveStaleBondAsync"/>).
+    /// </summary>
+    public async Task<bool> ConnectAsync(ulong bluetoothAddress, int maxAttempts = 20, int retryDelayMs = 500,
+                                         bool removeStaleBond = true)
     {
+        _removeStaleBond = removeStaleBond;
+        if (!removeStaleBond)
+            Log?.Invoke("Keeping the existing Windows pairing for this device (it was found as a paired device, not by advertisement).");
+
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
             if (attempt > 1)
@@ -212,7 +336,8 @@ internal sealed class BleMidiClient : IDisposable
         // or notifications never fire. Unconditionally wiping + re-pairing costs
         // ~300-500 ms and saves the user from a confusing class of bugs.
         // First connect (no prior bond) takes the no-op branch below.
-        await TryRemoveStaleBondAsync(bluetoothAddress).ConfigureAwait(false);
+        if (_removeStaleBond)
+            await TryRemoveStaleBondAsync(bluetoothAddress).ConfigureAwait(false);
 
         try
         {
