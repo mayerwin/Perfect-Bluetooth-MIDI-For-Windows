@@ -258,14 +258,14 @@ internal static class CliHost
                 if (seen.Add(addr))
                 {
                     found.Add((addr, name));
-                    write($"FOUND  {FormatAddr(addr)}   {name}   (paired, not advertising)");
+                    write($"FOUND  {FormatAddr(addr)}   {name}   (connected, not advertising)");
                 }
             }
         }).ConfigureAwait(false);
 
         int pairedOnly = found.Count - advertising;
         write($"Scan complete. {found.Count} device(s) found " +
-              $"({advertising} advertising, {pairedOnly} paired but not advertising).");
+              $"({advertising} advertising, {pairedOnly} connected-but-silent).");
         return found.Count > 0 ? 0 : 3;
     }
 

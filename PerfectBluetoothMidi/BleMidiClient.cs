@@ -178,8 +178,13 @@ internal sealed class BleMidiClient : IDisposable
     }
 
     /// <summary>
-    /// Find BLE-MIDI devices that are already bonded to Windows, whether or not
-    /// they are advertising right now.
+    /// Find BLE-MIDI devices that are bonded to Windows AND currently
+    /// connected, but not advertising.
+    ///
+    /// Both halves of that matter. "Bonded" alone is not enough: a Windows
+    /// pairing record outlives the device indefinitely, so filtering on it
+    /// alone lists hardware that is switched off or in another building. The
+    /// presence check inside the loop is what keeps this honest.
     ///
     /// Why this exists alongside <see cref="StartScan"/>: the advertisement
     /// watcher only ever sees devices that are actively broadcasting. Plenty of
@@ -226,10 +231,43 @@ internal sealed class BleMidiClient : IDisposable
             {
                 dev = await BluetoothLEDevice.FromIdAsync(info.Id);
                 if (dev is null) continue;
+
+                // PRESENCE CHECK — do not remove.
+                //
+                // A Windows pairing record outlives the device by design: it
+                // survives the device being switched off, taken to another
+                // room, or left in another building, and FromIdAsync happily
+                // returns an object for one that is nowhere near. The cached
+                // GATT database persists with it, so the MIDI-service check
+                // below passes for absent devices too. Without this gate the
+                // scan lists every BLE MIDI device the machine has EVER been
+                // paired with, and Connect on one of those grinds through the
+                // full 20-attempt retry loop before failing.
+                //
+                // ConnectionStatus is the discriminator that matters, and it
+                // is exactly right for the case this whole method exists to
+                // solve: a device that is bonded and auto-connected to Windows
+                // is Connected while being silent on the air, which is why the
+                // advertisement watcher misses it. A device that is merely
+                // remembered reads Disconnected.
+                //
+                // Deliberate gap: a device that is present, bonded, NOT
+                // connected and NOT advertising is not detectable here. That
+                // state is rare — a present-but-unconnected device normally
+                // advertises, which is how Windows reconnects it, so the
+                // watcher picks it up instead.
+                if (dev.ConnectionStatus != BluetoothConnectionStatus.Connected)
+                {
+                    if (Diag.Verbose)
+                        Log?.Invoke($"Paired device '{info.Name}' is not currently connected — " +
+                                    "skipping (a pairing record alone doesn't mean the device is here).");
+                    continue;
+                }
+
                 if (!await HasCachedMidiServiceAsync(dev).ConfigureAwait(false)) continue;
 
                 string name = string.IsNullOrWhiteSpace(dev.Name) ? "(unnamed)" : dev.Name;
-                Log?.Invoke($"Paired BLE MIDI device (not advertising): '{name}' {FormatAddress(dev.BluetoothAddress)}.");
+                Log?.Invoke($"Paired BLE MIDI device, connected but not advertising: '{name}' {FormatAddress(dev.BluetoothAddress)}.");
                 onFound(dev.BluetoothAddress, name);
             }
             catch (Exception ex)

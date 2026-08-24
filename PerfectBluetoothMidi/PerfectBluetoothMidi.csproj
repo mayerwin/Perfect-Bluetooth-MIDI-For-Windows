@@ -18,7 +18,7 @@
     <AssemblyName>PerfectBluetoothMidi</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.5.3</Version>
+    <Version>1.5.4</Version>
     <Product>Perfect Bluetooth MIDI</Product>
     <Company>Erwin Mayer</Company>
     <Description>Perfect Bluetooth MIDI — bridges a Bluetooth LE MIDI device (Roland FP-90X, WIDI Master, CME, Yamaha MD-BT01, …) into the new Windows MIDI Services stack so any DAW or Web MIDI site can use it as if it were wired.</Description>

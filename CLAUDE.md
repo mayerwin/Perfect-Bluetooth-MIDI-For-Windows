@@ -123,8 +123,11 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   on quit. Don't re-introduce sync-over-async from the UI thread.
 - **Two discovery paths, not one**: `BleMidiClient.StartScan` (advertisement
   watcher) finds only devices broadcasting right now.
-  `FindPairedDevicesAsync` sweeps devices already bonded to Windows and reads
-  their CACHED GATT database (no radio traffic, no connect). Many BLE-MIDI
+  `FindPairedDevicesAsync` sweeps devices that are bonded to Windows AND
+  currently connected, reading their CACHED GATT database (no radio traffic,
+  no connect). The connected check is load-bearing: a Windows pairing record
+  outlives the device indefinitely, so without it the scan lists every BLE
+  MIDI device the machine has ever been paired with, switched off or not. Many BLE-MIDI
   peripherals — pedal controllers especially (M-Vave / Cuvave, issue \#3) —
   stop advertising once bonded, so they are invisible to the watcher forever.
   The FP-90X masked this for months because it advertises whenever its
