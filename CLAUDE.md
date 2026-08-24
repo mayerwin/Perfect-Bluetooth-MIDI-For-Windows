@@ -81,7 +81,14 @@ From any terminal at the repo root:
 or directly:
 
     dotnet publish PerfectBluetoothMidi\PerfectBluetoothMidi.csproj -c Release -r win-x64 ^
-        --self-contained false -o dist
+        --self-contained true -p:PublishSingleFile=true ^
+        -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=embedded -o dist
+
+The publish MUST be self-contained: `PublishTrimmed` and
+`EnableCompressionInSingleFile` are only supported for self-contained apps
+(NETSDK1102 / NETSDK1176), and both are conditioned on `$(SelfContained)`
+in the .csproj. Framework-dependent still builds — it just silently drops
+trimming + compression and yields a ~53 MB exe instead of ~22 MB.
 
 The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI flag
 (`--scan`, `--connect`, `--detect-channels`, `--help`) = headless mode.

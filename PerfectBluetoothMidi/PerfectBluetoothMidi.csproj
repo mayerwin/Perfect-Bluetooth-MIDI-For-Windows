@@ -18,7 +18,7 @@
     <AssemblyName>PerfectBluetoothMidi</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.5.0</Version>
+    <Version>1.5.1</Version>
     <Product>Perfect Bluetooth MIDI</Product>
     <Company>Erwin Mayer</Company>
     <Description>Perfect Bluetooth MIDI — bridges a Bluetooth LE MIDI device (Roland FP-90X, WIDI Master, CME, Yamaha MD-BT01, …) into the new Windows MIDI Services stack so any DAW or Web MIDI site can use it as if it were wired.</Description>
@@ -44,7 +44,13 @@
          and SelfContained are passed on the command line by BUILD.bat. -->
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Single-file bundle compression is ONLY supported for self-contained
+         publishes — the SDK fails the build with NETSDK1176 otherwise (same
+         story for PublishTrimmed below: NETSDK1102). BUILD.bat publishes
+         self-contained precisely so both can be on; the condition keeps a
+         framework-dependent `dotnet publish` from erroring out instead of
+         just producing a bigger exe. Don't set this unconditionally. -->
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
 
     <!-- Trim the Windows SDK projections (Microsoft.Windows.SDK.NET.dll is
@@ -54,8 +60,9 @@
          (both use reflection in places the linker can't fully prove safe),
          and only trims assemblies that opt in — in practice the SDK
          projection, which IS trim-safe. Net effect on this project: roughly
-         halves the single-file exe. -->
-    <PublishTrimmed>true</PublishTrimmed>
+         halves the single-file exe.
+         Requires a self-contained publish (NETSDK1102) — see BUILD.bat. -->
+    <PublishTrimmed Condition="'$(SelfContained)' == 'true'">true</PublishTrimmed>
     <TrimMode>partial</TrimMode>
   </PropertyGroup>
 

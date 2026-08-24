@@ -7,10 +7,16 @@ REM    1. Install the .NET 10 SDK:   winget install Microsoft.DotNet.SDK.10
 REM    2. Create a Windows MIDI Services loopback endpoint (see README).
 REM
 REM  Output: dist\PerfectBluetoothMidi.exe
-REM    Framework-dependent, trimmed, single-file Windows x64 exe (~21 MB).
-REM    The .NET 10 Desktop Runtime is NOT bundled; if missing on the user's
-REM    machine, the .NET apphost's standard dialog offers to download it
-REM    on first run.
+REM    Self-contained, trimmed, compressed single-file Windows x64 exe
+REM    (~22 MB). The .NET 10 runtime IS bundled, so the exe runs on a
+REM    machine with no .NET installed at all.
+REM
+REM    Why self-contained: both PublishTrimmed and EnableCompressionInSingleFile
+REM    are only supported for self-contained publishes (the SDK rejects them
+REM    otherwise with NETSDK1102 / NETSDK1176). Publishing framework-dependent
+REM    therefore means dropping BOTH, which takes the exe from ~22 MB to
+REM    ~53 MB *and* still requires the user to install the runtime. Bundling
+REM    is smaller and simpler on both counts.
 REM =====================================================================
 
 setlocal
@@ -35,10 +41,9 @@ echo Publishing single-file exe...
 dotnet publish PerfectBluetoothMidi\PerfectBluetoothMidi.csproj ^
     -c Release ^
     -r win-x64 ^
-    --self-contained false ^
+    --self-contained true ^
     -p:PublishSingleFile=true ^
     -p:IncludeNativeLibrariesForSelfExtract=true ^
-    -p:EnableCompressionInSingleFile=true ^
     -p:DebugType=embedded ^
     -o dist || goto :fail
 

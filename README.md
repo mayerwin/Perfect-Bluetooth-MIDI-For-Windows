@@ -36,9 +36,9 @@ The bridge picks one of two host-side surfaces automatically:
 
 ## Highlights
 
-- **Single-file ~21 MB exe** — no installer. Framework-dependent + trimmed
-  (doesn't bundle the .NET runtime). If .NET 10 isn't already on your PC,
-  the standard Windows dialog offers to download it on first launch.
+- **Single-file ~22 MB exe** — no installer, no prerequisites. Self-contained
+  + trimmed + compressed: the .NET 10 runtime is bundled, so it runs on a PC
+  with no .NET installed at all.
 - **Zero-setup virtual port** when the WMS App SDK Runtime is installed —
   no MIDI Settings dance, no `midi loopback create`. Just type a name
   ("BT-MIDI Bridge" by default), and your DAW sees a port with that name
@@ -79,11 +79,9 @@ The bridge picks one of two host-side surfaces automatically:
 ## Download
 
 Grab the latest `PerfectBluetoothMidi.exe` from the
-[**Releases page**](../../releases). Single ~21 MB file — put it anywhere
-and double-click. On first launch, if the **.NET 10 Desktop Runtime** isn't
-already on your PC, Windows will pop up a dialog offering to download it
-for you (one click). If you'd rather install it ahead of time:
-`winget install Microsoft.DotNet.DesktopRuntime.10`.
+[**Releases page**](../../releases). Single ~22 MB file — put it anywhere
+and double-click. Nothing else to install: the .NET runtime is bundled
+inside the exe.
 
 ## One-time setup
 
@@ -348,7 +346,7 @@ cd Perfect-Bluetooth-MIDI-For-Windows
 ```
 
 Or open `PerfectBluetoothMidi.sln` in Visual Studio 2026 and **Publish**
-(target `win-x64`, framework-dependent, single file).
+(target `win-x64`, self-contained, single file).
 
 The built-in [self-updater](#automatic-updates) is enabled by default. To
 produce a build **without** it — e.g. for the Microsoft Store, which delivers
@@ -360,7 +358,7 @@ time (the ⚙ Settings menu then shows only the theme picker).
 
 ```
 PerfectBluetoothMidi/
-├── PerfectBluetoothMidi.csproj  # .NET 10 + Avalonia 11, framework-dependent single-file publish
+├── PerfectBluetoothMidi.csproj  # .NET 10 + Avalonia 11, self-contained single-file publish
 ├── app.manifest              # Win10/11 compat + per-monitor DPI awareness
 ├── Program.cs                # entry point + CLI-vs-GUI branch
 ├── CliHost.cs                # headless CLI (scan / connect / detect / phase)
