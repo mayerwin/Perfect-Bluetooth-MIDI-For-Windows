@@ -145,6 +145,11 @@ internal static class CliHost
                 // before we get here. We still need to "eat" the value here
                 // so the unknown-arg branch doesn't reject it.
                 case "--log":             _ = Next(); break;
+                // Same story: consumed by Program.Main / StartupTrace before
+                // we get here. Eat them so the unknown-arg branch below
+                // doesn't reject an otherwise valid CLI invocation.
+                case "--no-wms":
+                case "--wms":             break;
                 case "--unpair-on-exit":  opts.UnpairOnExit  = true;  break;
                 case "--phase":
                     opts.Phase = int.Parse(Next()!, CultureInfo.InvariantCulture);
@@ -514,6 +519,19 @@ CRASH DUMPS
   On any unhandled exception the app writes <exe>.crash.log next to the
   executable, containing the last several thousand log lines plus the
   exception. This is always-on; no flag needed.
+
+  A native fail-fast leaves no crash log (nothing managed gets to run), so
+  startup also drops a breadcrumb in %AppData%\PerfectBluetoothMidi\ naming
+  the phase it is in. If a run dies in the Windows MIDI Services SDK, the
+  NEXT launch says so and skips the SDK automatically.
+
+STARTUP OPTIONS (GUI or CLI)
+  --no-wms                 skip the Windows MIDI Services App SDK probe and
+                           use the classic loopback backend. Use this if the
+                           app dies on launch on a machine where the SDK
+                           runtime is installed.
+  --wms                    force the SDK probe back on, clearing a safe mode
+                           latched by a previous crashed run.
 
 ADDR
   BLE MAC, colon or dash separated, or raw hex. All of these are valid:

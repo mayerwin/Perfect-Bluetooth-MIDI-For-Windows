@@ -35,7 +35,7 @@ internal static class Program
         // CliHost re-parses them identically for its own use, but we set
         // them up first so even pre-Avalonia logs (the SDK probe, theme
         // load, etc.) reach the user's log file from line one.
-        ParseGlobalFlags(args, out bool verbose, out string? logPath);
+        ParseGlobalFlags(args, out bool verbose, out string? logPath, out bool noWms);
 
         // Always try to attach the parent console — harmless when there
         // isn't one. Lets a user who launched the GUI from cmd actually
@@ -45,6 +45,14 @@ internal static class Program
         CrashLog.Append($"Args: [{string.Join(' ', args)}]");
         if (logPath is not null) CrashLog.Append($"Live log file: {logPath}");
         CrashLog.Append($"Crash log path (on failure): {CrashLog.CrashFilePath}");
+
+        // ---- 1b. Read the previous run's startup breadcrumb ---------------
+        // Must happen before any of the phases it guards. A native fail-fast
+        // (0xC0000409) inside e.g. the WMS SDK runtime kills us without
+        // running a single handler below, so the breadcrumb left on disk is
+        // the only evidence we get — and it lets us route around the phase
+        // that did it. See StartupTrace and issue #5.
+        StartupTrace.Initialize(forceSkipWms: noWms, forceEnableWms: HasForceWmsFlag(args));
 
         // ---- 2. Install global crash handlers ----------------------------
         // AppDomain.UnhandledException catches synchronous exceptions on any
@@ -135,10 +143,11 @@ internal static class Program
     /// from <see cref="Diag.Verbose"/>). Anything we don't recognise is
     /// left for the downstream parser (CliHost or Avalonia) to handle.
     /// </summary>
-    private static void ParseGlobalFlags(string[] args, out bool verbose, out string? logPath)
+    private static void ParseGlobalFlags(string[] args, out bool verbose, out string? logPath, out bool noWms)
     {
         verbose = false;
         logPath = null;
+        noWms   = false;
         for (int i = 0; i < args.Length; i++)
         {
             string a = args[i];
@@ -151,7 +160,24 @@ internal static class Program
                 logPath = args[i + 1];
                 i++;
             }
+            // Escape hatch for a machine where touching the WMS App SDK
+            // runtime kills the process outright (see StartupTrace). Skips
+            // the probe and goes straight to the loopback backend, which
+            // needs none of the SDK runtime DLLs. --wms is the counterpart:
+            // it clears an automatic safe mode latched from a prior crash.
+            else if (a.Equals("--no-wms", StringComparison.OrdinalIgnoreCase))
+            {
+                noWms = true;
+            }
         }
+    }
+
+    /// <summary>True if <c>--wms</c> was passed (force the SDK probe back on).</summary>
+    private static bool HasForceWmsFlag(string[] args)
+    {
+        foreach (var a in args)
+            if (a.Equals("--wms", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     // Called both by Main (runtime) and the Avalonia designer (at tooling

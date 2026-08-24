@@ -198,6 +198,11 @@ public partial class MainWindow : Window
             // log instead of a frozen UI.
             await DetectAndApplyBackendAsync();
 
+            // Past every phase that can take the process down natively, so
+            // anything left on disk is stale. From here a crash is a normal
+            // managed one and the crash-log net handles it.
+            StartupTrace.Complete();
+
             if (_activeBackend == "Loopback")
             {
                 RefreshVirtualPorts();
@@ -1638,7 +1643,19 @@ public partial class MainWindow : Window
 
             var ep = new WmsVirtualHostEndpoint(name);
             ep.Log += s => AppendLog($"[virtual] {s}");
-            bool opened = await Task.Run(() => ep.Open()).ConfigureAwait(true);
+            // Breadcrumb around the SDK call for the same reason as the probe
+            // itself: Open() goes native, and a fail-fast in there leaves no
+            // managed trace. Cleared in the finally below whatever happens.
+            StartupTrace.Begin(StartupTrace.PhaseVirtualEndpoint);
+            bool opened;
+            try
+            {
+                opened = await Task.Run(() => ep.Open()).ConfigureAwait(true);
+            }
+            finally
+            {
+                StartupTrace.ClearPhase();
+            }
             if (opened)
             {
                 _virtualEndpoint = ep;
