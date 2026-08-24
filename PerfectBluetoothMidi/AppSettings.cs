@@ -94,11 +94,10 @@ internal static class AppSettingsStore
 
     static AppSettingsStore()
     {
-        string folder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "PerfectBluetoothMidi");
-        try { Directory.CreateDirectory(folder); } catch { }
-        FilePath = Path.Combine(folder, "app.json");
+        // Location (portable folder beside the exe, or AppData when that is
+        // read-only) and the migration of any pre-existing file are owned by
+        // AppPaths.
+        FilePath = AppPaths.AppSettingsFile;
     }
 
     public static AppSettings Load()

@@ -20,8 +20,8 @@ Two host-side backends, picked at startup by `WmsRuntime.EnsureInitialized`:
 
   - **Loopback** (fallback) — legacy path used when the SDK runtime isn't
     installed (or the user explicitly opted in via
-    `AppSettings.HostBackend = "Loopback"` in `%AppData%\PerfectBluetoothMidi\
-    app.json`). Opens a pre-existing WMS loopback endpoint via the WinMM
+    `AppSettings.HostBackend = "Loopback"` in `app.json`; see `AppPaths` for
+    where that lives). Opens a pre-existing WMS loopback endpoint via the WinMM
     API. Works against the in-box WMS service alone — no extra runtime
     install needed, but the user has to create the loopback themselves
     (we try `midi loopback create` automatically if the WMS CLI is on PATH).
@@ -62,6 +62,11 @@ Flow:
         WmsVirtualHostEndpoint.cs  ← preferred backend (WMS virtual UMP device)
         WmsRuntime.cs              ← SDK init/detection + UMP ⇄ MIDI 1.0 helpers
         ChannelDetector.cs         ← N-ascending-notes-per-channel auto-detector
+        AppPaths.cs                ← where every written file lives: portable
+                                     PerfectBluetoothMidi.config folder next to
+                                     the exe, AppData fallback, + migration
+        StartupTrace.cs            ← startup breadcrumb that survives a native
+                                     fail-fast; drives WMS safe mode
         DeviceSettings.cs          ← per-MAC settings persistence (devices.json)
         AppSettings.cs             ← global settings: theme, HostBackend, VirtualPortName, update cadence
         UpdateService.cs           ← self-updater (GitHub releases → SHA-256 verify
@@ -116,6 +121,25 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   `QuitApplicationAsync` (on thread-pool), which unpairs + disposes off the UI
   thread to avoid the WinRT-sync-context deadlock that used to hang the app
   on quit. Don't re-introduce sync-over-async from the UI thread.
+- **Where files go** (`AppPaths.cs`): the app is portable. EVERY file it
+  writes goes in `PerfectBluetoothMidi.config` next to the exe — `app.json`,
+  `devices.json`, `startup.marker`, `PerfectBluetoothMidi.crash.log`. Never
+  add a new `Environment.GetFolderPath(...)` call; route it through
+  `AppPaths` instead. AppData is only a fallback for a read-only exe
+  directory, decided by an actual write probe rather than by inspecting the
+  path (ACLs/policy/virtualisation make path inspection unreliable).
+  `AppPaths` must NOT call `CrashLog` — CrashLog's static init asks AppPaths
+  where the crash file goes, so logging from there is a cycle; buffer into
+  `StartupMessages` and let `Program.Main` drain it. Migration from the old
+  `%AppData%\PerfectBluetoothMidi` layout runs on first launch and is
+  copy-verify-then-delete, so a half-failure leaves the original readable.
+- **Startup breadcrumb** (`StartupTrace.cs`): a native fail-fast (0xC0000409)
+  runs NO managed handler, so the crash-log net produces nothing — see issue
+  \#5. Risky startup phases write their name to `startup.marker` before
+  entering and clear it in a `finally`; a marker present at next launch means
+  the previous run died there. Dying in a WMS phase latches safe mode (probe
+  skipped, loopback used). If you add a phase that calls into native SDK
+  code, wrap it the same way.
 - **Trim mode**: publish is `PublishTrimmed=true TrimMode=partial`, which
   halves the single-file size by stripping unused parts of
   `Microsoft.Windows.SDK.NET.dll` (the WinRT projection surface). Our own code

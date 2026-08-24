@@ -10,7 +10,7 @@ namespace PerfectBluetoothMidi;
 /// Why this exists: <see cref="Program"/> installs AppDomain.UnhandledException,
 /// TaskScheduler.UnobservedTaskException and a try/catch around all of Main,
 /// which between them catch every *managed* failure and write
-/// <c>&lt;exe&gt;.crash.log</c>. None of them fire for a native fail-fast
+/// <c>PerfectBluetoothMidi.crash.log</c>. None of them fire for a native fail-fast
 /// (STATUS_STACK_BUFFER_OVERRUN / 0xC0000409, what __fastfail raises): the
 /// process is torn down on the spot with no unwind, no handlers, no dump from
 /// us. That is what issue #5 reported — the user had nothing but an Event
@@ -163,20 +163,16 @@ internal static class StartupTrace
     }
 
     /// <summary>
-    /// %AppData%\PerfectBluetoothMidi\startup.marker — same folder as
-    /// app.json, so it inherits a location we already know is writable and
-    /// survives the app being moved or re-downloaded. Returns null if even
-    /// the folder can't be resolved, in which case tracing is simply off.
+    /// startup.marker in the app's data folder (see <see cref="AppPaths"/>),
+    /// alongside the settings files, so it inherits a location already proven
+    /// writable. Returns null if that can't be resolved, in which case tracing
+    /// is simply off and the app still starts.
     /// </summary>
     private static string? ResolveMarkerPath()
     {
         try
         {
-            string folder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "PerfectBluetoothMidi");
-            Directory.CreateDirectory(folder);
-            return Path.Combine(folder, "startup.marker");
+            return AppPaths.StartupMarkerFile;
         }
         catch
         {

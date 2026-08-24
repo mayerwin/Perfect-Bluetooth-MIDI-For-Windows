@@ -515,15 +515,23 @@ USAGE
   PerfectBluetoothMidi.exe --connect ADDR [options] [--log PATH]
   PerfectBluetoothMidi.exe --help
 
+DATA FOLDER
+  Everything this app writes lives in a PerfectBluetoothMidi.config folder
+  next to the exe: settings, per-device settings, the crash log and the
+  startup breadcrumb. Move or delete the exe and that folder together and
+  nothing is left behind. If the exe sits somewhere read-only (Program
+  Files, a network share), it falls back to %AppData%\PerfectBluetoothMidi
+  instead and says so in the log on startup.
+
 CRASH DUMPS
-  On any unhandled exception the app writes <exe>.crash.log next to the
-  executable, containing the last several thousand log lines plus the
+  On any unhandled exception the app writes PerfectBluetoothMidi.crash.log
+  into that folder, containing the last several thousand log lines plus the
   exception. This is always-on; no flag needed.
 
   A native fail-fast leaves no crash log (nothing managed gets to run), so
-  startup also drops a breadcrumb in %AppData%\PerfectBluetoothMidi\ naming
-  the phase it is in. If a run dies in the Windows MIDI Services SDK, the
-  NEXT launch says so and skips the SDK automatically.
+  startup also drops a breadcrumb there naming the phase it is in. If a run
+  dies in the Windows MIDI Services SDK, the NEXT launch says so and skips
+  the SDK automatically.
 
 STARTUP OPTIONS (GUI or CLI)
   --no-wms                 skip the Windows MIDI Services App SDK probe and

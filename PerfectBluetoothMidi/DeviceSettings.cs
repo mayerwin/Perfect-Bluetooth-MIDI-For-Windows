@@ -63,11 +63,10 @@ internal static class DeviceSettingsStore
 
     static DeviceSettingsStore()
     {
-        string folder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "PerfectBluetoothMidi");
-        try { Directory.CreateDirectory(folder); } catch { /* fall back to in-memory-only behaviour */ }
-        FilePath = Path.Combine(folder, "devices.json");
+        // See AppPaths: portable folder next to the exe, AppData only when
+        // that is not writable. Directory creation and the migration of an
+        // existing devices.json happen there.
+        FilePath = AppPaths.DeviceSettingsFile;
     }
 
     public static string PathForLog => FilePath;

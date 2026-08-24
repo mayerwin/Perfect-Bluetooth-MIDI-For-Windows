@@ -19,7 +19,8 @@ namespace PerfectBluetoothMidi;
 ///      ~5000 lines. On <see cref="WriteCrashFile"/> (called from
 ///      <c>UnhandledException</c> + the top-level try/catch in
 ///      <c>Program.Main</c>), the buffer is flushed alongside the exception
-///      to <c>&lt;exe&gt;.crash.log</c> next to the exe, so the user can
+///      to <c>PerfectBluetoothMidi.crash.log</c> in the app data folder
+///      (see <see cref="AppPaths"/>), so the user can
 ///      e-mail us a self-contained postmortem after a crash.
 ///
 /// Threading: every public method is internally locked. Callers can fire from
@@ -229,14 +230,12 @@ internal static class CrashLog
     {
         try
         {
-            string? exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe))
-                exe = Process.GetCurrentProcess().MainModule?.FileName;
-            if (string.IsNullOrEmpty(exe))
-                exe = "PerfectBluetoothMidi.exe";
-            string dir  = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory;
-            string name = Path.GetFileNameWithoutExtension(exe);
-            return Path.Combine(dir, $"{name}.crash.log");
+            // Lives in the same folder as everything else the app writes,
+            // rather than loose next to the exe as it did before 1.5.2.
+            // AppPaths deliberately does no logging of its own — it can't,
+            // since this very property is what it is being asked for — so
+            // Program.Main drains AppPaths.StartupMessages into the log.
+            return AppPaths.CrashLogFile;
         }
         catch
         {

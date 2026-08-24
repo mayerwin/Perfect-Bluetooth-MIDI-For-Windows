@@ -39,6 +39,12 @@ The bridge picks one of two host-side surfaces automatically:
 - **Single-file ~22 MB exe** — no installer, no prerequisites. Self-contained
   + trimmed + compressed: the .NET 10 runtime is bundled, so it runs on a PC
   with no .NET installed at all.
+- **Genuinely portable** — everything the app writes goes into a
+  `PerfectBluetoothMidi.config` folder next to the exe: settings, per-device
+  settings, crash log. Keep the exe and that folder together on a USB stick
+  and your setup travels with you; delete both and nothing is left behind.
+  (If the exe lives somewhere read-only such as `Program Files`, it falls
+  back to `%AppData%\PerfectBluetoothMidi` and says so in the log.)
 - **Zero-setup virtual port** when the WMS App SDK Runtime is installed —
   no MIDI Settings dance, no `midi loopback create`. Just type a name
   ("BT-MIDI Bridge" by default), and your DAW sees a port with that name
@@ -82,6 +88,13 @@ Grab the latest `PerfectBluetoothMidi.exe` from the
 [**Releases page**](../../releases). Single ~22 MB file — put it anywhere
 and double-click. Nothing else to install: the .NET runtime is bundled
 inside the exe.
+
+On first run it creates a `PerfectBluetoothMidi.config` folder alongside
+itself for your settings and logs. That folder plus the exe **is** the whole
+installation: copy both to move it, delete both to uninstall. Nothing is
+written to the registry, and (unless the exe is somewhere read-only) nothing
+is left in `%AppData%`. Upgrading in place keeps your settings, since the
+updater only replaces the exe.
 
 ## One-time setup
 
@@ -296,6 +309,21 @@ Test-sequence phases:
 - **Firefox**: does not ship Web MIDI. Not this app's limitation.
 
 ## Troubleshooting
+
+- **The app closes immediately when you launch it, with no error.** That
+  usually means something took the process down before it could report
+  anything. Relaunch it once: startup leaves a breadcrumb behind, so the
+  next run names the phase that died and writes it to the log. If the
+  culprit was the Windows MIDI Services SDK, the app skips it automatically
+  and starts on the loopback backend instead. You can force that by hand
+  with `PerfectBluetoothMidi.exe --no-wms`, and undo it with `--wms`. For a
+  full trace to attach to a bug report, run
+  `PerfectBluetoothMidi.exe --log C:\pbm.txt --verbose`.
+
+- **Where are my settings / the crash log?** In the
+  `PerfectBluetoothMidi.config` folder next to the exe. If the exe is
+  somewhere read-only such as `Program Files`, they go to
+  `%AppData%\PerfectBluetoothMidi` instead; the startup log says which.
 
 - **The app says "WMS App SDK runtime not detected".** That's expected if
   you haven't installed the Windows MIDI Services SDK Runtime — the app

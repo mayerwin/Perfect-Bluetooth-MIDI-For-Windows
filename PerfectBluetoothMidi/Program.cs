@@ -17,7 +17,8 @@ namespace PerfectBluetoothMidi;
 ///   2) Wrap the entire process in a defensive crash net. Any unhandled
 ///      exception — from Avalonia startup, from a UI event handler, from a
 ///      fire-and-forget async task — is dumped into
-///      <c>&lt;exe&gt;.crash.log</c> next to the executable along with the
+///      <c>PerfectBluetoothMidi.crash.log</c> in the app data folder
+///      (see <see cref="AppPaths"/>) along with the
 ///      last few thousand log lines, so users can mail us a self-contained
 ///      postmortem after an "it crashed three seconds in" report.
 ///
@@ -45,6 +46,15 @@ internal static class Program
         CrashLog.Append($"Args: [{string.Join(' ', args)}]");
         if (logPath is not null) CrashLog.Append($"Live log file: {logPath}");
         CrashLog.Append($"Crash log path (on failure): {CrashLog.CrashFilePath}");
+
+        // AppPaths resolved the data folder before CrashLog existed (CrashLog
+        // asks IT where the crash file goes), so it buffered anything notable
+        // rather than logging into a sink that wasn't up yet. Drain it now.
+        CrashLog.Append(AppPaths.IsPortable
+            ? $"Data folder (portable, next to the exe): {AppPaths.Root}"
+            : $"Data folder (roaming AppData fallback): {AppPaths.Root}");
+        foreach (string m in AppPaths.StartupMessages)
+            CrashLog.Append(m);
 
         // ---- 1b. Read the previous run's startup breadcrumb ---------------
         // Must happen before any of the phases it guards. A native fail-fast
