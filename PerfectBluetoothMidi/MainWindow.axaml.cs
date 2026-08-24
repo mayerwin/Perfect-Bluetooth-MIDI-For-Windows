@@ -165,6 +165,9 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _startupDone;
 
+    /// <summary>Screens.Changed is wired once, on the first Opened.</summary>
+    private bool _screensHooked;
+
     private TrayIcon? _trayIcon;
     private bool _shuttingDown;
     private bool _detectionRunning;
@@ -199,18 +202,6 @@ public partial class MainWindow : Window
         // takes effect on the NEXT launch rather than yanking the window away
         // from the user who just ticked the box.
         try { _startHiddenOnLaunch = AppSettingsStore.Load().StartMinimizedToTray; } catch { }
-        if (_startHiddenOnLaunch)
-        {
-            // Only so a login-time start doesn't grab focus from whatever the
-            // user is doing. Reset to true the moment we've hidden, because
-            // this property applies to EVERY Show() — leaving it false is why
-            // the window came back unfocused/behind everything when restored
-            // from the tray. ShowInTaskbar is deliberately NOT touched: a
-            // hidden window has no taskbar button anyway, and toggling it while
-            // hidden is exactly the kind of thing that breaks a later Show().
-            ShowActivated = false;
-        }
-
         WireUp();
         InstallTrayIcon();
 
@@ -242,41 +233,42 @@ public partial class MainWindow : Window
         {
             // CAREFUL: Opened is raised on EVERY Show(), not just the first —
             // so it fires again each time the window is restored from the tray.
-            // Only per-show work belongs above the guard.
+            // Only per-show work belongs here, above the guards.
             ApplyScreenFitScale();
 
-            if (_startupDone) return;
-            _startupDone = true;
-
-            // Below here is once-per-process. Re-running any of it on a tray
-            // restore would re-subscribe Screens.Changed (a handler leak),
-            // redo backend detection, and re-trigger auto-connect.
-            if (Screens is not null)
-                Screens.Changed += (_, _) => ApplyScreenFitScale();
-
-            // Start hidden if the user asked for it. Done here rather than by
-            // suppressing the initial Show(): the classic desktop lifetime owns
-            // showing MainWindow, and everything below still has to run, since
-            // the whole point is that the bridge comes up and connects while
-            // hidden. ShutdownMode is OnExplicitShutdown, so a hidden window
-            // does not end the process.
-            if (_startHiddenOnLaunch)
+            // Screens is only guaranteed available once the window has a
+            // handle, so this is wired here rather than in the constructor —
+            // but exactly once, or every tray restore leaks another handler.
+            if (!_screensHooked && Screens is not null)
             {
-                // Posted rather than called inline: Opened is raised from
-                // inside the platform Show() sequence, and hiding partway
-                // through that leaves the window in a state a later Show()
-                // doesn't reliably undo. Background priority runs this once
-                // the show has settled, using the same Hide() path as the
-                // "Hide to tray" button, which restores fine.
-                Dispatcher.UIThread.Post(() =>
-                {
-                    Hide();
-                    ShowActivated = true; // subsequent shows must activate normally
-                    AppendLog("Started minimised to the system tray. " +
-                              "Click the tray icon — or just run the app again — to show the window.");
-                }, DispatcherPriority.Background);
+                _screensHooked = true;
+                Screens.Changed += (_, _) => ApplyScreenFitScale();
             }
 
+            await RunStartupOnceAsync();
+        };
+        Closing += OnWindowClosing;
+
+        UpdateStatusPill(connected: false);
+    }
+
+    /// <summary>
+    /// Once-per-process startup: backend detection, endpoint creation, the
+    /// first-run loopback guard and auto-reconnect.
+    ///
+    /// Deliberately NOT inline in the Opened handler. When the app starts
+    /// minimised the window is never shown, so Opened never fires, and all of
+    /// this still has to run — the whole point is that the bridge comes up and
+    /// connects while hidden. <see cref="BeginStartupWhileHidden"/> is the
+    /// other caller. Idempotent via <see cref="_startupDone"/>, since Opened
+    /// fires again on every restore from the tray.
+    /// </summary>
+    private async Task RunStartupOnceAsync()
+    {
+        if (_startupDone) return;
+        _startupDone = true;
+
+        {
             // All the heavy WMS/SDK work is awaited via Task.Run so the
             // window can paint and the user sees progress in the activity
             // log instead of a frozen UI.
@@ -321,10 +313,26 @@ public partial class MainWindow : Window
             // elapsed. Runs last so it never delays bringing the bridge up.
             MaybeAutoCheckForUpdates();
 #endif
-        };
-        Closing += OnWindowClosing;
+        }
+    }
 
-        UpdateStatusPill(connected: false);
+    /// <summary>
+    /// Entry point for the start-minimised path, called by <see cref="App"/>
+    /// INSTEAD of showing the window. The window is never shown, so Opened
+    /// never fires and this has to drive startup itself.
+    ///
+    /// Why not show-then-hide: the classic desktop lifetime shows whatever is
+    /// assigned to <c>desktop.MainWindow</c>, and hiding it afterwards still
+    /// paints a frame first. The only way to genuinely start hidden is to
+    /// never show it.
+    /// </summary>
+    public void BeginStartupWhileHidden()
+    {
+        AppendLog("Started minimised to the system tray. " +
+                  "Click the tray icon — or just run the app again — to show the window.");
+        // Posted so the constructor finishes and the message loop is running
+        // before any of the heavy WMS work begins.
+        Dispatcher.UIThread.Post(() => _ = RunStartupOnceAsync(), DispatcherPriority.Background);
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
@@ -537,8 +545,11 @@ public partial class MainWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
-            // ShowInTaskbar may have been forced off for a tray-only start;
-            // restore it so the window behaves normally once visible.
+            // The window may never have been shown at all (start-minimised
+            // never assigns desktop.MainWindow), so make sure the lifetime
+            // knows about it now that it is becoming visible.
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime d && d.MainWindow is null)
+                d.MainWindow = this;
             ShowInTaskbar = true;
             Show();
             WindowState = WindowState.Normal;
@@ -1551,7 +1562,12 @@ public partial class MainWindow : Window
                     _foundDevices.Add((addr, name));
                     _pairedOnlyDevices.Add(addr);
                 }
-                items.Add($"{name}   [{FormatAddr(addr)}]  (paired)");
+                // "paired to Windows", not just "paired": a user in issue #3
+                // read the shorter label as "already connected", left the app
+                // sitting on Disconnected and never pressed Connect. The
+                // distinction that matters is Windows-level pairing versus
+                // this app holding the link.
+                items.Add($"{name}   [{FormatAddr(addr)}]  (paired to Windows)");
                 _devicesList.ItemsSource = null;
                 _devicesList.ItemsSource = items;
                 if (_devicesList.SelectedIndex < 0 && items.Count > 0)
@@ -1577,6 +1593,12 @@ public partial class MainWindow : Window
             int count;
             lock (_foundDevicesLock) count = _foundDevices.Count;
             AppendLog($"Scan finished. {count} device(s) found.");
+            // Say the next step out loud. A user in issue #3 got this far,
+            // saw the device listed as paired, and reasonably assumed it was
+            // connected — the status stayed Disconnected and no MIDI flowed
+            // because Connect was never pressed.
+            if (count > 0 && !_ble.IsConnected)
+                AppendLog("Select the device above and click Connect to start bridging its MIDI.");
             if (_autoConnectAddr != 0)
             {
                 AppendLog($"Auto-reconnect: last device {FormatAddr(_autoConnectAddr)} was not advertising. " +

@@ -27,12 +27,36 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
             // Shutdown mode: "OnExplicitShutdown" so closing the MainWindow
             // doesn't automatically terminate the process. This lets the user
             // hide to tray (window closes, app keeps running) and still lets
-            // us cleanly tear down from the tray's Exit menu item.
+            // us cleanly tear down from the tray's Exit menu item. It is also
+            // what allows the start-minimised path below to run with no window
+            // shown at all.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            var window = new MainWindow();
+
+            bool startHidden = false;
+            try { startHidden = AppSettingsStore.Load().StartMinimizedToTray; } catch { }
+
+            if (startHidden)
+            {
+                // Deliberately NOT assigning desktop.MainWindow. The lifetime
+                // calls Show() on whatever is assigned there, and showing then
+                // hiding still paints a window frame for a moment — which is
+                // exactly the flash users reported. Leaving it unassigned means
+                // the window is never shown, so there is nothing to flash.
+                //
+                // The window object still exists and the tray icon holds it, so
+                // RestoreFromTray can Show() it later. Startup work is driven
+                // explicitly because Opened will not fire until then.
+                window.BeginStartupWhileHidden();
+            }
+            else
+            {
+                desktop.MainWindow = window;
+            }
         }
         base.OnFrameworkInitializationCompleted();
     }
