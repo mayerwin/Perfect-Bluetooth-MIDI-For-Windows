@@ -59,6 +59,14 @@ internal sealed class BleMidiClient : IDisposable
     private const int E_BLUETOOTH_ATT_INSUFFICIENT_AUTHENTICATION = unchecked((int)0x80650005);
     private const int E_BLUETOOTH_ATT_INSUFFICIENT_AUTHORIZATION  = unchecked((int)0x80650008);
 
+    // HRESULTs that mean "the WinRT object you're holding is dead", not "the
+    // operation failed". Seen when a pairing negotiation bounced the ACL link
+    // underneath handles we resolved before pairing (observed: Yamaha WU-BT10
+    // dongle on a Casio PX-S1100) — the GattCharacteristic/GattDeviceService
+    // is still a live managed reference but its backing object is gone.
+    private const int RO_E_CLOSED         = unchecked((int)0x80000013);
+    private const int RPC_E_DISCONNECTED  = unchecked((int)0x80010108);
+
     public event Action<byte[]>? MidiReceived;
     public event Action<string>? Log;
     public event Action<bool>?   ConnectionChanged;
@@ -483,6 +491,7 @@ internal sealed class BleMidiClient : IDisposable
     {
         bool paired = _device!.DeviceInformation.Pairing.IsPaired;
         bool triedPairing = false;
+        bool triedStaleRebind = false;
 
         // Up to 4 passes: first unpaired attempt, (optional) pair, re-try,
         // then a final safety retry to ride out any transient failure.
@@ -517,6 +526,27 @@ internal sealed class BleMidiClient : IDisposable
                         return false;
                     continue; // retry immediately on the fresh characteristic
                 }
+            }
+            catch (Exception ex) when (IsStaleHandle(ex) && !triedStaleRebind)
+            {
+                // The handle itself is dead rather than the write being
+                // rejected. This happens when the proactive pairing in
+                // TryConnectOnceAsync (step 4a) ran a real negotiation that
+                // bounced the ACL link, invalidating the service +
+                // characteristic we resolved *before* pairing. Reported on a
+                // Yamaha WU-BT10 dongle driving a Casio PX-S1100 (issue #6):
+                // every CCCD write threw and the connect retried forever,
+                // because the rebind above only fires for security errors.
+                //
+                // Re-acquire once, then retry on the fresh characteristic.
+                // Deliberately narrow — devices whose handles survive pairing
+                // (FP-90X, Go:Keys 5) never throw here and keep the fast path.
+                triedStaleRebind = true;
+                Log?.Invoke($"Enable-notifications attempt {attempt}/4: {FormatException(ex)} " +
+                            "(GATT handles went stale — re-acquiring after pairing).");
+                if (!await RebindCharacteristicAsync(bluetoothAddress).ConfigureAwait(false))
+                    return false;
+                continue; // retry immediately on the fresh characteristic
             }
             catch (Exception ex)
             {
@@ -603,6 +633,17 @@ internal sealed class BleMidiClient : IDisposable
             // protection which Just-Works can't provide.
             result = await custom.PairAsync(DevicePairingKinds.ConfirmOnly,
                                             DevicePairingProtectionLevel.Encryption);
+        }
+        catch (Exception ex)
+        {
+            // PairAsync throws (rather than returning a status) when Windows
+            // considers the request invalid for the current state — e.g. a
+            // pairing already in flight, or the bond having completed since we
+            // read the stale DeviceInformation.Pairing.IsPaired snapshot.
+            // Without this catch the exception escapes to the connect-level
+            // handler, failing an attempt that may well be fine.
+            Log?.Invoke($"PairAsync threw {FormatException(ex)}.");
+            return _device?.DeviceInformation.Pairing.IsPaired == true;
         }
         finally
         {
@@ -694,6 +735,19 @@ internal sealed class BleMidiClient : IDisposable
     }
 
     /// <summary>
+    /// True when the exception means the WinRT object we called on is dead
+    /// (link dropped / proxy torn down) rather than the GATT operation having
+    /// been refused. Callers treat this as "re-acquire the handles and retry",
+    /// not "the device said no".
+    /// </summary>
+    private static bool IsStaleHandle(Exception ex)
+    {
+        return ex is ObjectDisposedException
+            || ex.HResult == RO_E_CLOSED
+            || ex.HResult == RPC_E_DISCONNECTED;
+    }
+
+    /// <summary>
     /// WinRT/COM exceptions often surface with an empty Message (HRESULT only).
     /// This renders something always-useful for the log, including well-known
     /// Bluetooth ATT HRESULT names.
@@ -717,6 +771,9 @@ internal sealed class BleMidiClient : IDisposable
         // operation in its current state — e.g. the Roland Go:Keys 5 rejecting
         // the targeted by-UUID service query (see EnsureMidiServiceAsync).
         unchecked((int)0x80070016) => "ERROR_BAD_COMMAND",
+        // The handle is dead rather than the operation refused — see IsStaleHandle.
+        RO_E_CLOSED                => "RO_E_CLOSED",
+        RPC_E_DISCONNECTED         => "RPC_E_DISCONNECTED",
         unchecked((int)0x80650001) => "InvalidHandle",
         unchecked((int)0x80650002) => "ReadNotPermitted",
         unchecked((int)0x80650003) => "WriteNotPermitted",
