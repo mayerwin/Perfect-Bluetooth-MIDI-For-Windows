@@ -225,32 +225,124 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
 
 ## Pending follow-ups
 
-Time-triggered cleanups Claude should propose to the user when the conditions
-below are met. Each item lists the trigger and the expected action.
+Time-triggered work Claude should re-check and propose to the user when the
+conditions below are met. Each item states what was true when it was written,
+so a later session can tell what actually changed instead of re-deriving it.
 
-- **Drop the vendored WMS SDK nupkg** — *check this on every session that touches
-  package deps, and proactively any session after 2026-05-28.*
-  As of 2026-04-30 (commit `26984ae`) the WMS App SDK
-  (`Microsoft.Windows.Devices.Midi2`) is pinned to `1.0.17-rc.4.25`, vendored
-  in `nuget-packages/`, and resolved via a local NuGet source in
-  `NuGet.config`. The whole arrangement exists *only* because Microsoft
-  hasn't published a stable to nuget.org yet.
-  **Steps when checking**:
-  1. `curl -fsSL https://api.nuget.org/v3-flatcontainer/microsoft.windows.devices.midi2/index.json`
-     — look for any version without a `-rc`/`-preview`/`-beta` suffix.
-  2. `gh release list --repo microsoft/MIDI --limit 5 --exclude-pre-releases`
-     — confirm against the GitHub releases.
-  3. **If a stable exists**: open a PR that deletes `nuget-packages/`,
-     removes the `local-wms-sdk` entry from `NuGet.config` (both
-     `<packageSources>` and `<packageSourceMapping>`), bumps the
-     `PackageReference` Version, and updates this file + `README.md` to
-     drop all "not on nuget.org / vendored" prose. Verify
-     `dotnet build -c Release` and `dotnet publish` still pass.
-  4. **If only a newer RC exists**: don't auto-bump — RC-to-RC ABI breaks
-     have happened (rc-3 → rc-4 changed loopback result types) and bumping
-     an RC also requires the user to install the matching SDK Runtime.
-     Tell the user the RC moved and let them decide.
-  5. **If nothing changed**: say so in one line and move on.
+- **Port to the in-box MIDI API (`Windows.Devices.Midi2`)** — *re-check any
+  session after 2026-10-01, or any session that touches `WmsRuntime.cs` /
+  `WmsVirtualHostEndpoint.cs` / the `Microsoft.Windows.Devices.Midi2` package
+  reference.*
+
+  **What is happening.** Microsoft is moving the WinRT MIDI API out of the
+  separately-installed App SDK and into Windows itself ("we've decided to put
+  the WinRT API/SDK into Windows, to simplify everything about using it").
+  The App SDK line stopped at `rc-4` (2026-04-12, `1.0.17-rc.4.25`, what we
+  pin). Development moved to `inbox-dev-preview-1..4` (2026-07-14 to
+  2026-08-06, latest `0.99.44-devpreview.4`), targeted to ship in Windows
+  "this fall" (2026). Findings below are as of **2026-08-24**.
+
+  **Why we care more than most apps.** The in-box release removes the ~219 MB
+  "SDK Runtime and Tools" prerequisite. That single requirement is why this
+  app has two backends at all: `DetectAndApplyBackend`, the loopback
+  fallback, `LoopbackSetupDialog`, the "Install the WMS App SDK Runtime…"
+  link and a chunk of README exist to work around it. In-box, the virtual
+  port works on a stock machine and the loopback path becomes legacy support.
+
+  **The app is NOT obsoleted by this.** The dev-preview notes list what did
+  not make the in-box cut: "preview transports including Network MIDI 2.0,
+  BLE MIDI 1.0/2.0, and the patch bay". Windows MIDI Services still ships
+  with no native BLE-MIDI transport, so the bridge is still needed. A native
+  BLE transport IS on their roadmap and is the thing that would eventually
+  retire this project — see the watch item below.
+
+  **Why we had NOT ported as of 2026-08-24** (verify each is still true
+  before starting; any one of them still holding is a reason to wait):
+  1. *Licensing forbids shipping it.* The dev preview's "Customer Preview"
+     tier allows distribution only in an app with an enforced expiry no later
+     than 2026-12-01. A GitHub release built on these binaries would violate
+     that.
+  2. *No C# projection.* "There's no projection for .NET distributed with the
+     binaries here. You must use CSWinRT 2.2.x to generate the projections
+     from the `.winmd`" — and the author reported CSWinRT 3.0 preview not
+     working. Once the metadata is in the Windows SDK we get the projection
+     free via the `Microsoft.Windows.SDK.NET.dll` our TFM already references,
+     which turns most of the port into a rename. Note their warning that "the
+     Windows SDK may lag some time behind the implementation binaries going
+     into Windows".
+  3. *ABI not locked.* They are explicitly soliciting breaking-change
+     feedback "before these go into Windows and get locked-down".
+
+  **Steps when re-checking**:
+  1. `gh release list --repo microsoft/MIDI --limit 8` — has an in-box /
+     non-preview release appeared, or newer dev previews?
+  2. `gh release view <newest-inbox-tag> --repo microsoft/MIDI --json body`
+     — re-read the namespace table and the "Known SDK Issues" list.
+  3. Check whether the installed Windows build actually has the API:
+     `Windows.Foundation.Metadata.ApiInformation.IsTypePresent("Windows.Devices.Midi2.MidiApi")`.
+  4. Re-verify the three blockers above.
+
+  **What the port actually involves** (inventoried 2026-08-24 against our
+  real API surface, which is small):
+  - *The initializer is deleted outright.* "There is no more COM initializer
+    because no special logic is required to load the SDK runtime. Similarly,
+    there's no SDK Update functionality, or versioning."
+    `MidiDesktopAppSdkInitializer.Create()` → `InitializeSdkRuntime()` →
+    `EnsureServiceAvailable()` collapses to a static
+    `MidiApi.EnsureServiceAvailable()` plus `ApiInformation.IsTypePresent`
+    for detection. `WmsRuntime.EnsureInitialized` shrinks to a few lines.
+    Keep the `StartupTrace` breadcrumb around it anyway.
+  - *Namespaces move*, including `Endpoints` → `Transports`:
+    `Microsoft.Windows.Devices.Midi2.Endpoints.Virtual` →
+    `Windows.Devices.Midi2.Transports.Virtual`; core types
+    (`MidiSession`, `MidiEndpointConnection`, `MidiGroup`, `MidiClock`,
+    `MidiFunctionBlock`, …) drop the `Microsoft.` prefix; message utilities
+    move to `Windows.Devices.Midi2.Utilities.Messages`.
+  - *Does NOT affect us, despite filling their changelog*: the
+    `MidiLoopback*Result` → `*Response` and `MidiBasicLoopbackEndpointManager`
+    → `MidiBasicLoopbackManager` renames, because our loopback backend goes
+    through WinMM, not the SDK loopback API. Nor do the removed utilities
+    (`MidiRuntimeRelease`, `MidiRuntimeUpdateUtility`, `RuntimeInformation`),
+    which we never used — `UpdateService.cs` is our own.
+  - *The real design decision is not the port.* It is that three
+    configurations must coexist for a while: in-box virtual (new Windows),
+    App-SDK virtual (24H2/25H2 with the runtime installed), and loopback.
+    `TargetFramework` would move to the Windows SDK carrying
+    `Windows.Devices.Midi2` while `SupportedOSPlatformVersion` stays at
+    10.0.19041.0, so every in-box call needs an `IsTypePresent` guard.
+    `WmsRuntime.IsAvailable` + loopback fallback is already the right shape;
+    only the probe body changes. Discuss the backend matrix with the user
+    before writing code.
+
+- **Watch for a native BLE-MIDI transport in Windows MIDI Services** — *check
+  whenever re-checking the item above.* This is the one upstream change that
+  would make this app redundant. As of 2026-08-24 it is named only as a
+  not-yet-shipped "preview transport", with nothing in `microsoft/MIDI`
+  issues suggesting it is imminent. If it ships, tell the user plainly rather
+  than quietly continuing to build features on top of a bridge Windows no
+  longer needs.
+
+- **Drop the vendored WMS SDK nupkg** — *check on any session that touches
+  package deps.* The App SDK (`Microsoft.Windows.Devices.Midi2`) is pinned to
+  `1.0.17-rc.4.25`, vendored in `nuget-packages/`, resolved via a local NuGet
+  source in `NuGet.config`.
+
+  **This item's original premise is dead.** It used to say "wait for
+  Microsoft to publish a stable to nuget.org, then delete the vendored
+  package". Confirmed 2026-08-24: `microsoft.windows.devices.midi2` still
+  404s on nuget.org, and the package is being *superseded* by the in-box
+  `Windows.Devices.Midi2` rather than finished, so a stable may never appear.
+  Do not wait for one. The vendored nupkg goes away as part of the in-box
+  port above, not before.
+  - *If a newer App SDK RC appears*: don't auto-bump. RC-to-RC ABI breaks
+    have happened (rc-3 → rc-4 changed loopback result types) and bumping
+    also forces the user to install the matching SDK Runtime. Tell the user
+    and let them decide.
+  - *When the in-box port lands*: delete `nuget-packages/`, remove the
+    `local-wms-sdk` entry from `NuGet.config` (both `<packageSources>` and
+    `<packageSourceMapping>`), drop the `PackageReference`, and strip the
+    "not on nuget.org / vendored" prose from this file and `README.md`.
+    Verify `dotnet build -c Release` and `.\BUILD.bat` still pass.
 
 ## Preferred workflow
 
