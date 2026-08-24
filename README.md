@@ -72,7 +72,8 @@ The bridge picks one of two host-side surfaces automatically:
   names + hex dumps for every message in both directions, including on-connect
   GATT service/characteristic enumeration.
 - **Settings menu (⚙)** at the top-right (left of the connection status)
-  holds the light / dark / system theme picker and the update preferences.
+  holds the light / dark / system theme picker, the **Start minimised to the
+  system tray** option and the update preferences.
 - **Automatic updates** — checks GitHub for new releases (**Monthly** by
   default; also Daily / Weekly / Never, plus a **Check now** button) and
   installs them in one click: downloads the new exe, verifies its SHA-256
@@ -81,6 +82,10 @@ The bridge picks one of two host-side surfaces automatically:
 - **Hide-to-tray** keeps the bridge running in the background. Closing the
   window cleanly unpairs the device on exit so it's released for other
   hosts (phone apps, another PC) rather than stuck bonded to Windows.
+- **Runs at login, invisibly** — tick **Start minimised to the system tray**
+  in ⚙ Settings (off by default) and drop the app in your Startup folder.
+  Combined with auto-reconnect it comes up at login, picks your device back
+  up and stays out of the way. Click the tray icon to show the window.
 
 ## Download
 

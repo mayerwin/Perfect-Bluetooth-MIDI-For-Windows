@@ -49,6 +49,20 @@ public sealed class AppSettings
     public bool AutoReconnectOnLaunch { get; set; } = true;
 
     /// <summary>
+    /// When true, the main window is hidden to the system tray immediately on
+    /// launch instead of being shown. Off by default: a user who double-clicks
+    /// an exe and gets no window would reasonably think it failed to start.
+    ///
+    /// The point is unattended running — put the exe (or a shortcut to it) in
+    /// the Startup folder and, together with
+    /// <see cref="AutoReconnectOnLaunch"/>, the bridge comes up at login,
+    /// reconnects to the last device and stays out of the way. Requested in
+    /// issue #4. The tray icon is always present regardless of this setting;
+    /// all this changes is whether the window is shown at startup.
+    /// </summary>
+    public bool StartMinimizedToTray { get; set; }
+
+    /// <summary>
     /// MAC of the last BLE device the app successfully connected to,
     /// formatted as <c>XX:XX:XX:XX:XX:XX</c> (matches
     /// <see cref="DeviceSettingsStore.FormatMac"/>). Empty if the user

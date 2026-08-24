@@ -80,6 +80,7 @@ public partial class MainWindow : Window
     private ComboBox  _channelCombo    = null!;
     private Button    _detectChannelBtn = null!;
     private ComboBox  _themeCombo      = null!; // built in BuildSettingsFlyout (lives in the gear flyout)
+    private CheckBox  _startInTrayBox  = null!; // ditto — "Start minimised to the system tray"
     private CheckBox  _autoReconnectBox = null!;
     private Button    _settingsBtn     = null!;
 #if SELF_UPDATE
@@ -152,6 +153,12 @@ public partial class MainWindow : Window
     }
     private readonly object _foundDevicesLock = new();
 
+    /// <summary>
+    /// Snapshot of AppSettings.StartMinimizedToTray taken in the constructor.
+    /// Read once so flipping the checkbox never hides the window mid-session.
+    /// </summary>
+    private bool _startHiddenOnLaunch;
+
     private TrayIcon? _trayIcon;
     private bool _shuttingDown;
     private bool _detectionRunning;
@@ -182,6 +189,18 @@ public partial class MainWindow : Window
         _bridge = new Bridge(_ble);
         _bridge.Log += AppendLog;
 
+        // Read once, before the window is shown, so toggling the setting only
+        // takes effect on the NEXT launch rather than yanking the window away
+        // from the user who just ticked the box.
+        try { _startHiddenOnLaunch = AppSettingsStore.Load().StartMinimizedToTray; } catch { }
+        if (_startHiddenOnLaunch)
+        {
+            // Don't grab focus from whatever the user is doing when this starts
+            // at login, and keep it off the taskbar while it lives in the tray.
+            ShowActivated  = false;
+            ShowInTaskbar  = false;
+        }
+
         WireUp();
         InstallTrayIcon();
 
@@ -202,6 +221,19 @@ public partial class MainWindow : Window
 
         Opened  += async (_, _) =>
         {
+            // Start hidden if the user asked for it. Done here rather than by
+            // suppressing the initial Show(): the classic desktop lifetime owns
+            // showing MainWindow, and everything below still has to run, since
+            // the whole point is that the bridge comes up and connects while
+            // hidden. ShutdownMode is OnExplicitShutdown, so a hidden window
+            // does not end the process. Paired with ShowActivated = false in
+            // the constructor so a login-time start never steals focus.
+            if (_startHiddenOnLaunch)
+            {
+                Hide();
+                AppendLog("Started minimised to the system tray. Click the tray icon to show the window.");
+            }
+
             ApplyScreenFitScale();
             if (Screens is not null)
                 Screens.Changed += (_, _) => ApplyScreenFitScale();
@@ -466,6 +498,9 @@ public partial class MainWindow : Window
     {
         Dispatcher.UIThread.Post(() =>
         {
+            // ShowInTaskbar may have been forced off for a tray-only start;
+            // restore it so the window behaves normally once visible.
+            ShowInTaskbar = true;
             Show();
             WindowState = WindowState.Normal;
             Activate();
@@ -792,6 +827,23 @@ public partial class MainWindow : Window
     /// FindControl wiring. Always holds the theme selector; the update controls
     /// are included only in self-update builds (the SELF_UPDATE constant).
     /// </summary>
+    private void OnStartInTrayChanged()
+    {
+        var s = AppSettingsStore.Load();
+        s.StartMinimizedToTray = _startInTrayBox.IsChecked == true;
+        AppSettingsStore.Save(s);
+        AppendLog(s.StartMinimizedToTray
+            ? "Start minimised to the system tray: ON. The window will stay hidden on the next launch."
+            : "Start minimised to the system tray: OFF.");
+    }
+
+    /// <summary>
+    /// Content width of the gear flyout. Every child wraps inside this, so
+    /// adding a long label must never widen the popup. Keep the root panel on a
+    /// fixed Width rather than MinWidth — see the note in BuildSettingsFlyout.
+    /// </summary>
+    private const double SettingsFlyoutWidth = 268;
+
     private void BuildSettingsFlyout()
     {
         _themeCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -800,9 +852,43 @@ public partial class MainWindow : Window
         themeSection.Children.Add(new TextBlock { Text = "Theme", FontWeight = FontWeight.SemiBold });
         themeSection.Children.Add(_themeCombo);
 
-        var root = new StackPanel { Spacing = 14, Margin = new Thickness(10), MinWidth = 268 };
+        // Start hidden in the tray. Off by default — see
+        // AppSettings.StartMinimizedToTray for why.
+        _startInTrayBox = new CheckBox
+        {
+            // Wrapped TextBlock rather than a plain string: a CheckBox measures
+            // a string caption at its full single-line width, which would push
+            // the flyout wider than SettingsFlyoutWidth and bring back the
+            // horizontal scrollbar.
+            Content = new TextBlock
+            {
+                Text = "Start minimised to the system tray",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            IsChecked = AppSettingsStore.Load().StartMinimizedToTray,
+        };
+        _startInTrayBox.IsCheckedChanged += (_, _) => OnStartInTrayChanged();
+
+        var startupSection = new StackPanel { Spacing = 4 };
+        startupSection.Children.Add(new TextBlock { Text = "Startup", FontWeight = FontWeight.SemiBold });
+        startupSection.Children.Add(_startInTrayBox);
+        startupSection.Children.Add(new TextBlock
+        {
+            Classes = { "sectionSub" },
+            TextWrapping = TextWrapping.Wrap,
+            Text = "Runs in the background from login if you put the app in your Startup folder. "
+                 + "Click the tray icon to show the window.",
+        });
+
+        // Fixed width, not MinWidth. A vertical StackPanel measures its
+        // children unconstrained, so a wrapping TextBlock reports its full
+        // single-line width as desired and the panel grows to match — the text
+        // never wraps and the flyout gets a horizontal scrollbar. Pinning the
+        // width gives the children a real constraint to wrap inside.
+        var root = new StackPanel { Spacing = 14, Margin = new Thickness(10), Width = SettingsFlyoutWidth };
         root.Children.Add(new TextBlock { Text = "Settings", FontWeight = FontWeight.Bold, FontSize = 15 });
         root.Children.Add(themeSection);
+        root.Children.Add(startupSection);
 #if SELF_UPDATE
         root.Children.Add(BuildUpdateSection());
 #endif
