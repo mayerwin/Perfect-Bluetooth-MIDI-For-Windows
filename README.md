@@ -325,6 +325,25 @@ Test-sequence phases:
   full trace to attach to a bug report, run
   `PerfectBluetoothMidi.exe --log C:\pbm.txt --verbose`.
 
+- **The port doesn't appear in my DAW / amp sim / browser.** Two causes, in
+  order of likelihood:
+  1. **The app wasn't running when the other program started.** Almost every
+     DAW and plugin host looks for MIDI ports once, at launch. Start this app
+     first, then fully quit and reopen the DAW (closing its settings window
+     isn't enough).
+  2. **An older virtual MIDI driver is in the way.** `loopMIDI` in particular
+     has been observed to stop Windows MIDI Services ports from reaching
+     applications: the DAW listed other endpoints but never `BT-MIDI Bridge`,
+     and uninstalling loopMIDI plus a reboot made it appear
+     ([#3](../../issues/3)). You don't need loopMIDI for this app — it creates
+     its own port — so remove it if it's only there for this.
+
+- **The status says "Disconnected" and no MIDI flows.** Finding your device in
+  the list isn't the last step: select it and click **Connect**. A device
+  labelled `(paired to Windows)` is paired with *Windows*, which is not the
+  same as this app holding the link. The pill turns green when it's actually
+  bridging.
+
 - **Where are my settings / the crash log?** In the
   `PerfectBluetoothMidi.data` folder next to the exe. If the exe is
   somewhere read-only such as `Program Files`, they go to
