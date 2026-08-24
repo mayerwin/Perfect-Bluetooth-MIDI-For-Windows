@@ -121,6 +121,21 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   `QuitApplicationAsync` (on thread-pool), which unpairs + disposes off the UI
   thread to avoid the WinRT-sync-context deadlock that used to hang the app
   on quit. Don't re-introduce sync-over-async from the UI thread.
+- **`Opened` fires on EVERY `Show()`**, not just the first — so it runs again
+  on each restore from the tray. The once-per-process startup work in that
+  handler sits behind the `_startupDone` guard; only genuinely per-show work
+  (`ApplyScreenFitScale`) belongs above it. This bit twice: the start-minimised
+  logic re-ran and instantly re-hid the window every time the user restored it
+  (issues \#3 and \#4), and `Screens.Changed` was being re-subscribed on every
+  restore. Don't move anything above that guard without checking it is
+  idempotent.
+- **One GUI instance per install** (`SingleInstance.cs`): a second launch
+  signals the running one to surface and exits. Not a nicety — with
+  "start minimised" on, double-clicking the exe used to spawn another hidden
+  process, so the window could never be recovered and copies contended for the
+  virtual port name and the BLE device. CLI invocations deliberately opt out,
+  so `--scan` still works alongside a running GUI. Keyed on `AppPaths.Root`,
+  so two portable copies stay independent.
 - **Two discovery paths, not one**: `BleMidiClient.StartScan` (advertisement
   watcher) finds only devices broadcasting right now.
   `FindPairedDevicesAsync` sweeps devices that are bonded to Windows AND

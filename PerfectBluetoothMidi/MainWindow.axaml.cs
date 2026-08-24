@@ -159,6 +159,12 @@ public partial class MainWindow : Window
     /// </summary>
     private bool _startHiddenOnLaunch;
 
+    /// <summary>
+    /// Opened fires on every Show(), including each restore from the tray.
+    /// This gates the once-per-process startup work inside that handler.
+    /// </summary>
+    private bool _startupDone;
+
     private TrayIcon? _trayIcon;
     private bool _shuttingDown;
     private bool _detectionRunning;
@@ -195,14 +201,27 @@ public partial class MainWindow : Window
         try { _startHiddenOnLaunch = AppSettingsStore.Load().StartMinimizedToTray; } catch { }
         if (_startHiddenOnLaunch)
         {
-            // Don't grab focus from whatever the user is doing when this starts
-            // at login, and keep it off the taskbar while it lives in the tray.
-            ShowActivated  = false;
-            ShowInTaskbar  = false;
+            // Only so a login-time start doesn't grab focus from whatever the
+            // user is doing. Reset to true the moment we've hidden, because
+            // this property applies to EVERY Show() — leaving it false is why
+            // the window came back unfocused/behind everything when restored
+            // from the tray. ShowInTaskbar is deliberately NOT touched: a
+            // hidden window has no taskbar button anyway, and toggling it while
+            // hidden is exactly the kind of thing that breaks a later Show().
+            ShowActivated = false;
         }
 
         WireUp();
         InstallTrayIcon();
+
+        // A second launch of the exe asks us to surface. Fires on a background
+        // thread, so marshal.
+        SingleInstance.ActivationRequested += () =>
+        {
+            CrashLog.Append("Another launch asked this instance to show its window.");
+            RestoreFromTray();
+        };
+        SingleInstance.StartListening();
 
         // Shrink the UI up-front (before the window is shown) so it opens at a
         // size that fits the display — avoids a flash of the full-size window
@@ -221,22 +240,42 @@ public partial class MainWindow : Window
 
         Opened  += async (_, _) =>
         {
+            // CAREFUL: Opened is raised on EVERY Show(), not just the first —
+            // so it fires again each time the window is restored from the tray.
+            // Only per-show work belongs above the guard.
+            ApplyScreenFitScale();
+
+            if (_startupDone) return;
+            _startupDone = true;
+
+            // Below here is once-per-process. Re-running any of it on a tray
+            // restore would re-subscribe Screens.Changed (a handler leak),
+            // redo backend detection, and re-trigger auto-connect.
+            if (Screens is not null)
+                Screens.Changed += (_, _) => ApplyScreenFitScale();
+
             // Start hidden if the user asked for it. Done here rather than by
             // suppressing the initial Show(): the classic desktop lifetime owns
             // showing MainWindow, and everything below still has to run, since
             // the whole point is that the bridge comes up and connects while
             // hidden. ShutdownMode is OnExplicitShutdown, so a hidden window
-            // does not end the process. Paired with ShowActivated = false in
-            // the constructor so a login-time start never steals focus.
+            // does not end the process.
             if (_startHiddenOnLaunch)
             {
-                Hide();
-                AppendLog("Started minimised to the system tray. Click the tray icon to show the window.");
+                // Posted rather than called inline: Opened is raised from
+                // inside the platform Show() sequence, and hiding partway
+                // through that leaves the window in a state a later Show()
+                // doesn't reliably undo. Background priority runs this once
+                // the show has settled, using the same Hide() path as the
+                // "Hide to tray" button, which restores fine.
+                Dispatcher.UIThread.Post(() =>
+                {
+                    Hide();
+                    ShowActivated = true; // subsequent shows must activate normally
+                    AppendLog("Started minimised to the system tray. " +
+                              "Click the tray icon — or just run the app again — to show the window.");
+                }, DispatcherPriority.Background);
             }
-
-            ApplyScreenFitScale();
-            if (Screens is not null)
-                Screens.Changed += (_, _) => ApplyScreenFitScale();
 
             // All the heavy WMS/SDK work is awaited via Task.Run so the
             // window can paint and the user sees progress in the activity
@@ -597,6 +636,8 @@ public partial class MainWindow : Window
         // Final log-file flush on the way out. AutoFlush + ProcessExit cover
         // this in normal operation, but a Shutdown() that races with the
         // process loop could in theory exit before ProcessExit fires.
+        try { SingleInstance.Release(); } catch { }
+
         try { CrashLog.Flush(); } catch { }
 
 #if SELF_UPDATE

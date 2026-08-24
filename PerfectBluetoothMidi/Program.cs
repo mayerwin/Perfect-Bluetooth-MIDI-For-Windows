@@ -105,6 +105,18 @@ internal static class Program
             if (CliHost.IsCliInvocation(args))
                 return CliHost.RunAsync(args).GetAwaiter().GetResult();
 
+            // One GUI instance per install. A second launch hands off to the
+            // running one and exits, so double-clicking the exe means "show me
+            // the app" even when it is hidden in the tray. Without this,
+            // "start minimised" made the app impossible to open: every launch
+            // added another hidden process. See SingleInstance.
+            if (!SingleInstance.TryBecomePrimary())
+            {
+                SingleInstance.SignalPrimary();
+                CrashLog.Append("Already running — asked the existing instance to show its window and exiting.");
+                return 0;
+            }
+
 #if SELF_UPDATE
             // Remove any leftover *.old backup left behind by a prior in-place
             // self-update (the old exe couldn't be deleted until this, the new
