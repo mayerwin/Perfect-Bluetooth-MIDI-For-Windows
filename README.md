@@ -40,7 +40,7 @@ The bridge picks one of two host-side surfaces automatically:
   + trimmed + compressed: the .NET 10 runtime is bundled, so it runs on a PC
   with no .NET installed at all.
 - **Genuinely portable** — everything the app writes goes into a
-  `PerfectBluetoothMidi.config` folder next to the exe: settings, per-device
+  `PerfectBluetoothMidi.data` folder next to the exe: settings, per-device
   settings, crash log. Keep the exe and that folder together on a USB stick
   and your setup travels with you; delete both and nothing is left behind.
   (If the exe lives somewhere read-only such as `Program Files`, it falls
@@ -89,7 +89,7 @@ Grab the latest `PerfectBluetoothMidi.exe` from the
 and double-click. Nothing else to install: the .NET runtime is bundled
 inside the exe.
 
-On first run it creates a `PerfectBluetoothMidi.config` folder alongside
+On first run it creates a `PerfectBluetoothMidi.data` folder alongside
 itself for your settings and logs. That folder plus the exe **is** the whole
 installation: copy both to move it, delete both to uninstall. Nothing is
 written to the registry, and (unless the exe is somewhere read-only) nothing
@@ -321,7 +321,7 @@ Test-sequence phases:
   `PerfectBluetoothMidi.exe --log C:\pbm.txt --verbose`.
 
 - **Where are my settings / the crash log?** In the
-  `PerfectBluetoothMidi.config` folder next to the exe. If the exe is
+  `PerfectBluetoothMidi.data` folder next to the exe. If the exe is
   somewhere read-only such as `Program Files`, they go to
   `%AppData%\PerfectBluetoothMidi` instead; the startup log says which.
 

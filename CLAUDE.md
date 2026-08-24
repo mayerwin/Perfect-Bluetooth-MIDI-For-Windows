@@ -63,7 +63,7 @@ Flow:
         WmsRuntime.cs              ← SDK init/detection + UMP ⇄ MIDI 1.0 helpers
         ChannelDetector.cs         ← N-ascending-notes-per-channel auto-detector
         AppPaths.cs                ← where every written file lives: portable
-                                     PerfectBluetoothMidi.config folder next to
+                                     PerfectBluetoothMidi.data folder next to
                                      the exe, AppData fallback, + migration
         StartupTrace.cs            ← startup breadcrumb that survives a native
                                      fail-fast; drives WMS safe mode
@@ -122,7 +122,7 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   thread to avoid the WinRT-sync-context deadlock that used to hang the app
   on quit. Don't re-introduce sync-over-async from the UI thread.
 - **Where files go** (`AppPaths.cs`): the app is portable. EVERY file it
-  writes goes in `PerfectBluetoothMidi.config` next to the exe — `app.json`,
+  writes goes in `PerfectBluetoothMidi.data` next to the exe — `app.json`,
   `devices.json`, `startup.marker`, `PerfectBluetoothMidi.crash.log`. Never
   add a new `Environment.GetFolderPath(...)` call; route it through
   `AppPaths` instead. AppData is only a fallback for a read-only exe

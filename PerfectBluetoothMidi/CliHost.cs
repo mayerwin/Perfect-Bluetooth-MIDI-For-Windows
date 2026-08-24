@@ -516,7 +516,7 @@ USAGE
   PerfectBluetoothMidi.exe --help
 
 DATA FOLDER
-  Everything this app writes lives in a PerfectBluetoothMidi.config folder
+  Everything this app writes lives in a PerfectBluetoothMidi.data folder
   next to the exe: settings, per-device settings, the crash log and the
   startup breadcrumb. Move or delete the exe and that folder together and
   nothing is left behind. If the exe sits somewhere read-only (Program

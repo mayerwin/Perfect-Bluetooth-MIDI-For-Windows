@@ -10,7 +10,7 @@ namespace PerfectBluetoothMidi;
 ///
 /// The app ships as one self-contained exe with no installer, so it should
 /// behave like a portable app: everything it writes lives in a
-/// <c>PerfectBluetoothMidi.config</c> folder NEXT TO THE EXE, and moving or
+/// <c>PerfectBluetoothMidi.data</c> folder NEXT TO THE EXE, and moving or
 /// deleting that pair takes the whole installation with it. Historically the
 /// two settings files went to <c>%AppData%\PerfectBluetoothMidi</c> while the
 /// crash log went beside the exe, which was neither one thing nor the other;
@@ -31,7 +31,7 @@ namespace PerfectBluetoothMidi;
 internal static class AppPaths
 {
     /// <summary>Folder name created next to the exe in portable mode.</summary>
-    private const string PortableFolderName = "PerfectBluetoothMidi.config";
+    private const string PortableFolderName = "PerfectBluetoothMidi.data";
 
     private static readonly List<string> _messages = new();
     private static readonly object _lock = new();
