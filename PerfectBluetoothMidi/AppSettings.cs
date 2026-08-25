@@ -63,6 +63,25 @@ public sealed class AppSettings
     public bool StartMinimizedToTray { get; set; }
 
     /// <summary>
+    /// Boot identifier of the Windows session in which creating the virtual
+    /// MIDI port last failed, or empty if it hasn't. Empty on any machine that
+    /// works normally, which is most of them.
+    ///
+    /// Exists because of microsoft/MIDI#1047: on affected Windows builds only
+    /// the first client after the MIDI service starts can create a virtual
+    /// port, so once we've failed, every later launch in the same Windows
+    /// session will fail too. Without remembering it, an affected user pays
+    /// the full detection timeout on every single launch for no new
+    /// information.
+    ///
+    /// Keyed to the boot rather than "forever": a reboot restarts the service
+    /// and the port becomes available again, so a new boot must retry. The
+    /// Repair action and an explicit switch back to Virtual also clear it,
+    /// since both make the port available again without rebooting.
+    /// </summary>
+    public string VirtualPortFailedInBoot { get; set; } = "";
+
+    /// <summary>
     /// MAC of the last BLE device the app successfully connected to,
     /// formatted as <c>XX:XX:XX:XX:XX:XX</c> (matches
     /// <see cref="DeviceSettingsStore.FormatMac"/>). Empty if the user

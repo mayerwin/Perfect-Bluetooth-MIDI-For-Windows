@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -1872,6 +1873,85 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Identifies the current Windows session by its boot time. Used to scope
+    /// "the virtual port is unavailable" to one boot: the MIDI service starts
+    /// with Windows, and a reboot is what makes the port available again.
+    /// Derived from uptime, so it needs no privileges and no service queries.
+    /// </summary>
+    private static string CurrentBootId()
+    {
+        try
+        {
+            var bootUtc = DateTime.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+            return bootUtc.ToString("o", CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Two boot stamps count as the same Windows session if they're within this
+    /// of each other. NOT an exact comparison on purpose: the stamp is derived
+    /// from UtcNow minus uptime, and those two drift against each other by
+    /// seconds, so equality (or truncating to the minute) flips at boundaries
+    /// and the whole mechanism silently stops working. Reboots are minutes
+    /// apart at the very least, so a wide tolerance costs nothing.
+    /// </summary>
+    private static readonly TimeSpan BootIdTolerance = TimeSpan.FromMinutes(5);
+
+    private static bool IsSameBoot(string storedBootId)
+    {
+        if (string.IsNullOrEmpty(storedBootId)) return false;
+        if (!DateTime.TryParse(storedBootId, CultureInfo.InvariantCulture,
+                               DateTimeStyles.RoundtripKind, out DateTime stored))
+            return false;
+        string nowId = CurrentBootId();
+        if (!DateTime.TryParse(nowId, CultureInfo.InvariantCulture,
+                               DateTimeStyles.RoundtripKind, out DateTime now))
+            return false;
+        return (stored - now).Duration() < BootIdTolerance;
+    }
+
+    /// <summary>
+    /// True if we already established, in THIS Windows session, that the
+    /// virtual port cannot be created. See AppSettings.VirtualPortFailedInBoot.
+    /// </summary>
+    private static bool VirtualPortKnownBadThisBoot()
+    {
+        try
+        {
+            return IsSameBoot(AppSettingsStore.Load().VirtualPortFailedInBoot);
+        }
+        catch { return false; }
+    }
+
+    private static void RememberVirtualPortFailure()
+    {
+        try
+        {
+            var s = AppSettingsStore.Load();
+            s.VirtualPortFailedInBoot = CurrentBootId();
+            AppSettingsStore.Save(s);
+        }
+        catch { }
+    }
+
+    /// <summary>Forget the failure so the virtual port is attempted again.</summary>
+    private static void ForgetVirtualPortFailure()
+    {
+        try
+        {
+            var s = AppSettingsStore.Load();
+            if (s.VirtualPortFailedInBoot.Length == 0) return;
+            s.VirtualPortFailedInBoot = "";
+            AppSettingsStore.Save(s);
+        }
+        catch { }
+    }
+
     private async Task EnsureVirtualEndpointOpenCoreAsync()
     {
         // Already established this run that the service won't answer. Don't
@@ -1880,6 +1960,21 @@ public partial class MainWindow : Window
         if (_wmsUnresponsive && _virtualEndpoint is null)
         {
             AppendLog("Skipping the virtual port: Windows MIDI Services already failed to create one this run.");
+            return;
+        }
+
+        // Established in an EARLIER launch, same Windows session. Skip straight
+        // to the loopback path rather than stalling for the timeout again.
+        // Cleared by a reboot, by the Repair action, or by the user explicitly
+        // asking for the virtual port again — all three make it available.
+        if (_virtualEndpoint is null && VirtualPortKnownBadThisBoot())
+        {
+            _wmsUnresponsive = true;
+            AppendLog("Windows MIDI Services couldn't create the virtual port earlier in this Windows session, " +
+                      "so the app is using the classic loopback path without waiting again.");
+            AppendLog("This is the known Windows bug (microsoft/MIDI issue 1047), fixed by Microsoft and due in a " +
+                      "Windows update in November 2026. Restarting Windows restores the virtual port, or use " +
+                      "'Repair Windows MIDI Services…' below.");
             return;
         }
 
@@ -1921,6 +2016,10 @@ public partial class MainWindow : Window
                               .ConfigureAwait(true) != openTask)
                 {
                     _wmsUnresponsive = true;
+                    // Remember for the rest of this Windows session. On an
+                    // affected build every later launch fails the same way, so
+                    // without this the user pays this timeout on every launch.
+                    RememberVirtualPortFailure();
                     // This is a known Windows MIDI Services defect, not a fault
                     // in this app and not something the user misconfigured:
                     // microsoft/MIDI#1047. On affected Windows builds only the
@@ -2311,6 +2410,7 @@ public partial class MainWindow : Window
         }
 
         AppendLog("Service stopped. Windows restarts it on demand; retrying the virtual port…");
+        ForgetVirtualPortFailure();
         await Task.Delay(1500).ConfigureAwait(true);
 
         // Clear the latch so the retry is actually attempted, then go back
@@ -2360,9 +2460,18 @@ public partial class MainWindow : Window
         // mode skipped the probe. Without this the switch would be a no-op:
         // EnsureInitialized would return its cached "skipped" answer, we would
         // fall straight back to loopback, and the link would look broken.
+        // An explicit request for the virtual port always gets a real attempt,
+        // even if we gave up on it earlier this boot.
+        if (newBackend == "Virtual")
+        {
+            ForgetVirtualPortFailure();
+            _wmsUnresponsive = false;
+        }
+
         if (newBackend == "Virtual" && WmsRuntime.ProbeSkipped)
         {
             AppendLog("Retrying the Windows MIDI Services SDK, which was skipped this run as a precaution…");
+            ForgetVirtualPortFailure();
             StartupTrace.ClearSafeMode();
             WmsRuntime.ResetForRetry();
         }
