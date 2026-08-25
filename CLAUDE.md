@@ -240,6 +240,19 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   ownership semantics — disposing the long-lived virtual endpoint on
   disconnect would make the port disappear from DAWs every time the user
   toggles Connect, which was the whole bug we just fixed.
+- **We cannot repair a wedged WMS service ourselves.** `midisrv` grants
+  Interactive Users query/read only — `sc sdshow midisrv` shows no `RP`/`WP`
+  (start/stop) for `IU`, and the WMS CLI says service commands need an
+  Administrator console. So "detect a bad state at startup and fix it" is not
+  available without elevation. The strategy instead is: bound every SDK call
+  that can block, degrade to loopback when one times out, and tell the user to
+  run `midi service restart` elevated. `EnsureVirtualEndpointOpenAsync` has
+  that timeout; `ep.Open()` blocking forever against a stuck service is what
+  left startup half-finished with a dead Connect button (issue #4).
+  NOTE a remaining gap: `WmsRuntime.EnsureInitialized` is still unbounded, and
+  a timeout there is NOT a safe drop-in — it holds `_gate` across the native
+  calls, so abandoning it would deadlock every later `IsAvailable` reader,
+  including the UI thread. Make those readers lock-free first.
 - **"Not probed" is not "not installed"**: when `StartupTrace` safe mode skips
   the WMS probe, `WmsRuntime.IsAvailable` is false but so is any knowledge of
   the machine. `WmsRuntime.ProbeSkipped` distinguishes the two, and every

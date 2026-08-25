@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -27,11 +27,11 @@ namespace PerfectBluetoothMidi;
 /// tray icon, thread-marshalling for the MIDI RX highlight).
 ///
 /// Design system lives in <c>App.axaml</c>. Style classes (<c>card</c>,
-/// <c>accent</c>, <c>sectionHead</c>, …) are applied there.
+/// <c>accent</c>, <c>sectionHead</c>, â€¦) are applied there.
 ///
 /// Close behaviour (user-requested, 2026-04):
-///   • The window's close button ("X") fully exits the process.
-///   • "Hide to tray" is an explicit button — the bridge keeps running and
+///   â€¢ The window's close button ("X") fully exits the process.
+///   â€¢ "Hide to tray" is an explicit button â€” the bridge keeps running and
 ///     the system-tray icon lets you bring the window back or exit.
 /// This matches modern app conventions (e.g. Discord with its explicit
 /// "Close to tray" preference) and avoids the frustration of "I can't quit".
@@ -39,24 +39,24 @@ namespace PerfectBluetoothMidi;
 public partial class MainWindow : Window
 {
     // ---- Controls (resolved from XAML on load) -------------------------
-    // Root scaler — shrinks the whole UI on small displays (see
+    // Root scaler â€” shrinks the whole UI on small displays (see
     // ApplyScreenFitScale). Resolved alongside the rest below.
     private LayoutTransformControl _rootScaler = null!;
     private ScaleTransform         _rootScale  = null!;
     // Re-entrancy guard for ApplyScreenFitScale (setting Width/Height can
     // re-raise the events that call it) and the bounds of the screen we last
-    // fit to — lets the PositionChanged handler distinguish "still on the same
+    // fit to â€” lets the PositionChanged handler distinguish "still on the same
     // monitor" from "moved to another" without re-fitting on every drag pixel.
     private bool      _applyingScale;
     private PixelRect _lastFitScreenBounds;
-    // Card 1 — virtual-device panel
+    // Card 1 â€” virtual-device panel
     private StackPanel _virtualPanel    = null!;
     private TextBox   _virtualPortNameBox = null!;
     private Button    _virtualPortApplyBtn = null!;
     private TextBlock _virtualDawHint  = null!;
     private Button    _virtualMidianoBtn = null!;
     private Button    _useLoopbackInsteadBtn = null!;
-    // Card 1 — loopback panel
+    // Card 1 â€” loopback panel
     private StackPanel _loopbackPanel  = null!;
     private ComboBox  _portCombo       = null!;
     private Button    _refreshPortsBtn = null!;
@@ -80,7 +80,7 @@ public partial class MainWindow : Window
     private ComboBox  _channelCombo    = null!;
     private Button    _detectChannelBtn = null!;
     private ComboBox  _themeCombo      = null!; // built in BuildSettingsFlyout (lives in the gear flyout)
-    private CheckBox  _startInTrayBox  = null!; // ditto — "Start minimised to the system tray"
+    private CheckBox  _startInTrayBox  = null!; // ditto â€” "Start minimised to the system tray"
     private CheckBox  _autoReconnectBox = null!;
     private Button    _settingsBtn     = null!;
 #if SELF_UPDATE
@@ -93,7 +93,7 @@ public partial class MainWindow : Window
     private bool      _relaunchAfterQuit;      // set just before an update-triggered quit
 #endif
 
-    // Status-pill colours are looked up from the theme at render time — see
+    // Status-pill colours are looked up from the theme at render time â€” see
     // ThemeBrush(). This is what makes Light/Dark switching re-colour the
     // pill automatically without extra wiring.
 
@@ -102,8 +102,8 @@ public partial class MainWindow : Window
     private readonly Bridge        _bridge;
     /// <summary>
     /// Active host backend, picked at startup by <see cref="DetectAndApplyBackend"/>.
-    /// "Virtual" → use <see cref="WmsVirtualHostEndpoint"/>.
-    /// "Loopback" → use <see cref="WinMMHostEndpoint"/> over a pre-existing
+    /// "Virtual" â†’ use <see cref="WmsVirtualHostEndpoint"/>.
+    /// "Loopback" â†’ use <see cref="WinMMHostEndpoint"/> over a pre-existing
     /// WMS loopback endpoint.
     /// </summary>
     private string _activeBackend = "Loopback";
@@ -134,7 +134,7 @@ public partial class MainWindow : Window
     /// holds the BLE address we want to find. The Found callback in
     /// <see cref="StartScan"/> auto-connects and clears this when it sees
     /// the matching advertisement; the scan timeout also clears it. UI
-    /// thread only — no synchronisation needed.
+    /// thread only â€” no synchronisation needed.
     /// </summary>
     private ulong _autoConnectAddr;
     private readonly List<(ulong addr, string name)> _foundDevices = new();
@@ -173,7 +173,7 @@ public partial class MainWindow : Window
     private bool _detectionRunning;
     /// <summary>
     /// Re-entry guard for <see cref="ToggleConnectionAsync"/>. The button's
-    /// IsEnabled flicker isn't enough on its own — the auto-reconnect
+    /// IsEnabled flicker isn't enough on its own â€” the auto-reconnect
     /// callback (in <see cref="StartScan"/>) calls
     /// <c>ToggleConnectionAsync</c> directly, bypassing the button. A
     /// concurrent BLE connect would double-enter <c>BleMidiClient</c>'s
@@ -215,7 +215,7 @@ public partial class MainWindow : Window
         SingleInstance.StartListening();
 
         // Shrink the UI up-front (before the window is shown) so it opens at a
-        // size that fits the display — avoids a flash of the full-size window
+        // size that fits the display â€” avoids a flash of the full-size window
         // on small screens. Re-applied in Opened once the real target screen
         // is known (constructor only sees the primary screen).
         ApplyScreenFitScale();
@@ -231,13 +231,13 @@ public partial class MainWindow : Window
 
         Opened  += async (_, _) =>
         {
-            // CAREFUL: Opened is raised on EVERY Show(), not just the first —
+            // CAREFUL: Opened is raised on EVERY Show(), not just the first â€”
             // so it fires again each time the window is restored from the tray.
             // Only per-show work belongs here, above the guards.
             ApplyScreenFitScale();
 
             // Screens is only guaranteed available once the window has a
-            // handle, so this is wired here rather than in the constructor —
+            // handle, so this is wired here rather than in the constructor â€”
             // but exactly once, or every tray restore leaks another handler.
             if (!_screensHooked && Screens is not null)
             {
@@ -258,7 +258,7 @@ public partial class MainWindow : Window
     ///
     /// Deliberately NOT inline in the Opened handler. When the app starts
     /// minimised the window is never shown, so Opened never fires, and all of
-    /// this still has to run — the whole point is that the bridge comes up and
+    /// this still has to run â€” the whole point is that the bridge comes up and
     /// connects while hidden. <see cref="BeginStartupWhileHidden"/> is the
     /// other caller. Idempotent via <see cref="_startupDone"/>, since Opened
     /// fires again on every restore from the tray.
@@ -288,7 +288,7 @@ public partial class MainWindow : Window
                 // command fails, fall back to the explainer modal.
                 if (CurrentLoopbackCount() == 0)
                 {
-                    AppendLog("No loopback endpoint detected — trying `midi loopback create` to make one automatically…");
+                    AppendLog("No loopback endpoint detected â€” trying `midi loopback create` to make one automaticallyâ€¦");
                     bool created = await TryAutoCreateLoopbackAsync();
                     if (created)
                     {
@@ -329,7 +329,7 @@ public partial class MainWindow : Window
     public void BeginStartupWhileHidden()
     {
         AppendLog("Started minimised to the system tray. " +
-                  "Click the tray icon — or just run the app again — to show the window.");
+                  "Click the tray icon â€” or just run the app again â€” to show the window.");
         // Posted so the constructor finishes and the message loop is running
         // before any of the heavy WMS work begins.
         Dispatcher.UIThread.Post(() => _ = RunStartupOnceAsync(), DispatcherPriority.Background);
@@ -373,7 +373,7 @@ public partial class MainWindow : Window
         _detectChannelBtn = this.FindControl<Button>("DetectChannelBtn")!;
         _settingsBtn     = this.FindControl<Button>("SettingsBtn")!;
         _autoReconnectBox = this.FindControl<CheckBox>("AutoReconnectBox")!;
-        // _themeCombo is NOT resolved here — it's created in BuildSettingsFlyout
+        // _themeCombo is NOT resolved here â€” it's created in BuildSettingsFlyout
         // and lives inside the gear button's flyout (a separate name scope).
     }
 
@@ -384,12 +384,12 @@ public partial class MainWindow : Window
     // The size (device-independent pixels) the layout was designed around.
     // DesignMin* is the comfortable floor the controls were authored against;
     // Design{Width,Height} is the roomier default. These mirror the
-    // Width/Height/MinWidth/MinHeight in MainWindow.axaml — keep them in sync.
+    // Width/Height/MinWidth/MinHeight in MainWindow.axaml â€” keep them in sync.
     private const double DesignWidth     = 1040;
     private const double DesignHeight    = 760;
     private const double DesignMinWidth  = 820;
     private const double DesignMinHeight = 760;
-    // Never shrink below this — past roughly half size the text stops being
+    // Never shrink below this â€” past roughly half size the text stops being
     // comfortably legible, and no real display needs more reduction than that.
     private const double MinFitScale     = 0.5;
 
@@ -397,7 +397,7 @@ public partial class MainWindow : Window
     /// Scale the entire UI down (via <see cref="_rootScale"/>) so the window
     /// always fits the current display's working area. On screens at least as
     /// large as the design size this is a no-op (scale = 1). On smaller ones
-    /// — 7" 1024x600 panels, or 1080p at 150% scaling — it shrinks the content
+    /// â€” 7" 1024x600 panels, or 1080p at 150% scaling â€” it shrinks the content
     /// uniformly and pulls the window's own size/constraints down to match, so
     /// the title bar stays on-screen and the window remains movable/resizable.
     /// Best-effort: any failure to probe the screen just leaves the window at
@@ -585,7 +585,7 @@ public partial class MainWindow : Window
 
     private void HideToTray()
     {
-        AppendLog("Window hidden — bridge continues running in the tray. Right-click the tray icon to exit.");
+        AppendLog("Window hidden â€” bridge continues running in the tray. Right-click the tray icon to exit.");
         Hide();
     }
 
@@ -605,7 +605,7 @@ public partial class MainWindow : Window
     /// continuations default to resuming on the captured SynchronizationContext,
     /// which is Avalonia's UI thread. A sync-over-async call from the UI thread
     /// (e.g. <c>UnpairAsync().GetAwaiter().GetResult()</c>) therefore deadlocks
-    /// the app on quit. Run the BLE teardown on the thread pool instead — no
+    /// the app on quit. Run the BLE teardown on the thread pool instead â€” no
     /// SynchronizationContext there, so continuations resume freely.
     /// </summary>
     private async Task QuitApplicationAsync()
@@ -625,7 +625,7 @@ public partial class MainWindow : Window
         //      the bond + reconnects opportunistically, blocking other hosts.
         //   2) Dispose: tears down our session/service/device handles and
         //      unsubscribes from GATT notifications.
-        // Cost on next startup: one fresh pairing (≈300 ms) instead of the
+        // Cost on next startup: one fresh pairing (â‰ˆ300 ms) instead of the
         // instant reconnect a cached bond would allow. Fair trade.
         await Task.Run(async () =>
         {
@@ -653,7 +653,7 @@ public partial class MainWindow : Window
 
 #if SELF_UPDATE
         // If this quit was triggered by an installed update, launch the new
-        // exe now — AFTER the BLE device + virtual endpoint have been released
+        // exe now â€” AFTER the BLE device + virtual endpoint have been released
         // above, so the fresh instance doesn't contend for them or the port name.
         if (_relaunchAfterQuit)
         {
@@ -665,7 +665,7 @@ public partial class MainWindow : Window
         if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Fire Shutdown on the UI thread, not inside the Closing handler's
-            // stack — otherwise Avalonia re-enters and the window never goes
+            // stack â€” otherwise Avalonia re-enters and the window never goes
             // away cleanly.
             Dispatcher.UIThread.Post(() => desktop.Shutdown());
         }
@@ -766,7 +766,7 @@ public partial class MainWindow : Window
             bool v = _verboseBox.IsChecked == true;
             Diag.Verbose = v;
             AppendLog(v
-                ? "Verbose logging ON — per-MIDI-message traces will appear here."
+                ? "Verbose logging ON â€” per-MIDI-message traces will appear here."
                 : "Verbose logging OFF.");
         };
         _clearLogBtn.Click += (_, _) => _logBox.Text = string.Empty;
@@ -776,7 +776,7 @@ public partial class MainWindow : Window
 
         // ----- Piano keyboard wiring -----
 
-        // Incoming: device plays a note → highlight the matching key.
+        // Incoming: device plays a note â†’ highlight the matching key.
         _ble.MidiReceived += midi =>
         {
             if (midi is null || midi.Length < 2) return;
@@ -791,7 +791,7 @@ public partial class MainWindow : Window
             _keyboard.HighlightNote(note, on);
         };
 
-        // Outgoing: on-screen click / PC key → send to piano over BLE.
+        // Outgoing: on-screen click / PC key â†’ send to piano over BLE.
         _keyboard.NoteOn  += (midi, vel) =>
         {
             if (!_ble.IsConnected) return;
@@ -862,7 +862,7 @@ public partial class MainWindow : Window
         UpdateStatusPill(_ble.IsConnected);
 
         // Read-modify-write so changing the theme doesn't wipe the rest of
-        // app.json (HostBackend, LastConnectedMac, update settings, …).
+        // app.json (HostBackend, LastConnectedMac, update settings, â€¦).
         var s = AppSettingsStore.Load();
         s.Theme = item.Saved;
         AppSettingsStore.Save(s);
@@ -892,7 +892,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Content width of the gear flyout. Every child wraps inside this, so
     /// adding a long label must never widen the popup. Keep the root panel on a
-    /// fixed Width rather than MinWidth — see the note in BuildSettingsFlyout.
+    /// fixed Width rather than MinWidth â€” see the note in BuildSettingsFlyout.
     /// </summary>
     private const double SettingsFlyoutWidth = 268;
 
@@ -904,7 +904,7 @@ public partial class MainWindow : Window
         themeSection.Children.Add(new TextBlock { Text = "Theme", FontWeight = FontWeight.SemiBold });
         themeSection.Children.Add(_themeCombo);
 
-        // Start hidden in the tray. Off by default — see
+        // Start hidden in the tray. Off by default â€” see
         // AppSettings.StartMinimizedToTray for why.
         _startInTrayBox = new CheckBox
         {
@@ -934,7 +934,7 @@ public partial class MainWindow : Window
 
         // Fixed width, not MinWidth. A vertical StackPanel measures its
         // children unconstrained, so a wrapping TextBlock reports its full
-        // single-line width as desired and the panel grows to match — the text
+        // single-line width as desired and the panel grows to match â€” the text
         // never wraps and the flyout gets a horizontal scrollbar. Pinning the
         // width gives the children a real constraint to wrap inside.
         var root = new StackPanel { Spacing = 14, Margin = new Thickness(10), Width = SettingsFlyoutWidth };
@@ -1021,13 +1021,13 @@ public partial class MainWindow : Window
     {
         if (Interlocked.Exchange(ref _updateCheckBusy, 1) == 1)
         {
-            if (manual) SetUpdateStatus("A check is already in progress…");
+            if (manual) SetUpdateStatus("A check is already in progressâ€¦");
             return;
         }
         try
         {
             _checkNowBtn.IsEnabled = false;
-            SetUpdateStatus("Checking for updates…");
+            SetUpdateStatus("Checking for updatesâ€¦");
 
             UpdateService.UpdateInfo? info = null;
             Exception? error = null;
@@ -1080,7 +1080,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                SetUpdateStatus($"v{info.Version} is available — install from Settings when ready.");
+                SetUpdateStatus($"v{info.Version} is available â€” install from Settings when ready.");
             }
         }
         finally
@@ -1095,32 +1095,32 @@ public partial class MainWindow : Window
         if (!UpdateService.CanSelfUpdate(out string reason))
         {
             AppendLog($"Can't self-update in place ({reason}). Opening the download page instead.");
-            SetUpdateStatus("Opening the download page…");
+            SetUpdateStatus("Opening the download pageâ€¦");
             OpenInBrowser(UpdateService.ReleasesPageUrl);
             return;
         }
 
         try
         {
-            SetUpdateStatus($"Downloading v{info.Version}…");
+            SetUpdateStatus($"Downloading v{info.Version}â€¦");
             var progress = new Progress<double>(p =>
-                SetUpdateStatus($"Downloading v{info.Version}… {p * 100:0}%"));
+                SetUpdateStatus($"Downloading v{info.Version}â€¦ {p * 100:0}%"));
             await UpdateService.StageAsync(info, progress, AppendLog);
         }
         catch (Exception ex)
         {
             AppendLog($"Update failed: {ex.Message}. Opening the download page instead.");
-            SetUpdateStatus("Update failed — opening the download page…");
+            SetUpdateStatus("Update failed â€” opening the download pageâ€¦");
             OpenInBrowser(UpdateService.ReleasesPageUrl);
             return;
         }
 
-        AppendLog($"Update installed. Restarting into v{info.Version}…");
-        SetUpdateStatus("Restarting…");
+        AppendLog($"Update installed. Restarting into v{info.Version}â€¦");
+        SetUpdateStatus("Restartingâ€¦");
         _relaunchAfterQuit = true;
         // Mirror the other quit entry points: set the guard so the Shutdown()
         // at the tail of QuitApplicationAsync (which re-fires OnWindowClosing)
-        // doesn't trigger a second teardown — and, critically, a second relaunch.
+        // doesn't trigger a second teardown â€” and, critically, a second relaunch.
         if (_shuttingDown) return;
         _shuttingDown = true;
         await QuitApplicationAsync();
@@ -1147,14 +1147,14 @@ public partial class MainWindow : Window
         content.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Text = $"Version {info.Version} is available — you have v{UpdateService.CurrentVersion}.\n\n" +
+            Text = $"Version {info.Version} is available â€” you have v{UpdateService.CurrentVersion}.\n\n" +
                    "Install it now? The app will download the update, replace itself, and restart.",
         });
 
         if (!string.IsNullOrWhiteSpace(info.Notes))
         {
             string notes = info.Notes!.Trim();
-            if (notes.Length > 1500) notes = notes[..1500] + "…";
+            if (notes.Length > 1500) notes = notes[..1500] + "â€¦";
             content.Children.Add(new ScrollViewer
             {
                 MaxHeight = 200,
@@ -1238,7 +1238,7 @@ public partial class MainWindow : Window
         _ble.TransmitChannel = item.Value;
 
         ulong addr = _ble.CurrentAddress;
-        if (addr == 0) return; // nothing to persist yet — saved when a device is connected
+        if (addr == 0) return; // nothing to persist yet â€” saved when a device is connected
 
         var existing = DeviceSettingsStore.Get(addr) ?? new DeviceSetting();
         existing.TransmitChannel = item.Value;
@@ -1248,8 +1248,8 @@ public partial class MainWindow : Window
         DeviceSettingsStore.Save(addr, existing);
 
         AppendLog(item.Value == 0
-            ? "TX channel → Passthrough (no rewrite). Saved for this device."
-            : $"TX channel → {item.Value}. Outgoing messages will be rewritten to channel {item.Value}. Saved for this device.");
+            ? "TX channel â†’ Passthrough (no rewrite). Saved for this device."
+            : $"TX channel â†’ {item.Value}. Outgoing messages will be rewritten to channel {item.Value}. Saved for this device.");
     }
 
     /// <summary>
@@ -1308,7 +1308,7 @@ public partial class MainWindow : Window
         try
         {
             await ChannelDetector.RunAsync(_ble, AppendLog, _detectCts.Token);
-            AppendLog("If you identified the channel, pick it in the TX channel dropdown — it'll be saved for this device automatically.");
+            AppendLog("If you identified the channel, pick it in the TX channel dropdown â€” it'll be saved for this device automatically.");
         }
         catch (Exception ex)
         {
@@ -1317,7 +1317,7 @@ public partial class MainWindow : Window
         finally
         {
             _detectionRunning = false;
-            _detectChannelBtn.Content   = "Detect…";
+            _detectChannelBtn.Content   = "Detectâ€¦";
             _detectChannelBtn.IsEnabled = _ble.IsConnected;
             _connectBtn.IsEnabled       = _ble.IsConnected || _devicesList.SelectedIndex >= 0;
             _scanBtn.IsEnabled          = true;
@@ -1338,13 +1338,13 @@ public partial class MainWindow : Window
         _statusText.Foreground = connected ? connBrush : mutedBrush;
         if (_trayIcon is not null)
             _trayIcon.ToolTipText = connected
-                ? "Perfect Bluetooth MIDI — connected"
+                ? "Perfect Bluetooth MIDI â€” connected"
                 : "Perfect Bluetooth MIDI";
     }
 
     /// <summary>
     /// Look up a theme brush by key against the window's current theme variant.
-    /// Falls back to transparent if the resource is missing — better than
+    /// Falls back to transparent if the resource is missing â€” better than
     /// throwing and taking the app down over a cosmetic glitch.
     /// </summary>
     private IBrush ThemeBrush(string resourceKey)
@@ -1392,8 +1392,8 @@ public partial class MainWindow : Window
         else
         {
             _portCombo.SelectedItem = null;
-            AppendLog("No loopback endpoints found. Open MIDI Settings and create one — " +
-                      "either a MIDI 2.0 UMP pair or a MIDI 1.0 BLOOP — or run:  " +
+            AppendLog("No loopback endpoints found. Open MIDI Settings and create one â€” " +
+                      "either a MIDI 2.0 UMP pair or a MIDI 1.0 BLOOP â€” or run:  " +
                       "midi loopback create --root-name \"BT-MIDI Bridge\"");
         }
     }
@@ -1406,7 +1406,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Populates the "your DAW should open X" helper text under the port
     /// combo. For a UMP pair (names end with " (A)" / " (B)") the DAW uses
-    /// the OPPOSITE side — each letter is a self-contained input+output
+    /// the OPPOSITE side â€” each letter is a self-contained input+output
     /// stream, so the DAW picks the same name for both MIDI IN and MIDI OUT.
     /// For a BLOOP (single endpoint) both sides pick the same name.
     /// </summary>
@@ -1423,9 +1423,9 @@ public partial class MainWindow : Window
         else if (name.EndsWith(" (B)", StringComparison.Ordinal)) otherSide = name[..^4] + " (A)";
 
         _dawHint.Text = otherSide is null
-            ? $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output. " +
+            ? $"In your DAW / Web MIDI site, open â€œ{name}â€ as BOTH the MIDI input and MIDI output. " +
               RestartHostHint
-            : $"In your DAW / Web MIDI site, open “{otherSide}” (the other side of the pair) as BOTH the MIDI input and MIDI output — same name for both directions. " +
+            : $"In your DAW / Web MIDI site, open â€œ{otherSide}â€ (the other side of the pair) as BOTH the MIDI input and MIDI output â€” same name for both directions. " +
               RestartHostHint;
     }
 
@@ -1443,7 +1443,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Best-effort: run `midi loopback create --root-name "BT-MIDI Bridge"`
     /// via the Windows MIDI Services CLI. Returns true if the command exited
-    /// cleanly (exit code 0). Silent on failure — caller falls back to the
+    /// cleanly (exit code 0). Silent on failure â€” caller falls back to the
     /// explainer dialog for users who don't have WMS installed.
     ///
     /// Uses a 5-second timeout so a hung CLI can't stall app startup.
@@ -1468,7 +1468,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            // CLI not on PATH, or any other spawn failure. Fine — we just
+            // CLI not on PATH, or any other spawn failure. Fine â€” we just
             // fall through to the explainer modal.
             return false;
         }
@@ -1516,7 +1516,7 @@ public partial class MainWindow : Window
                     if (Volatile.Read(ref _scanGeneration) != gen) return;
                     lock (_foundDevicesLock) _foundDevices.Add((addr, name));
                     items.Add($"{name}   [{FormatAddr(addr)}]");
-                    // Rebind — ItemsSource doesn't observe add on a raw List<T>.
+                    // Rebind â€” ItemsSource doesn't observe add on a raw List<T>.
                     _devicesList.ItemsSource = null;
                     _devicesList.ItemsSource = items;
                     if (_devicesList.SelectedIndex < 0 && items.Count > 0)
@@ -1531,7 +1531,7 @@ public partial class MainWindow : Window
                         ulong target = _autoConnectAddr;
                         _autoConnectAddr = 0;
                         _devicesList.SelectedIndex = items.Count - 1;
-                        AppendLog($"Auto-reconnect: found {FormatAddr(target)}, connecting…");
+                        AppendLog($"Auto-reconnect: found {FormatAddr(target)}, connectingâ€¦");
                         StopScanInternal();
                         _ = ToggleConnectionAsync();
                     }
@@ -1578,7 +1578,7 @@ public partial class MainWindow : Window
                     ulong target = _autoConnectAddr;
                     _autoConnectAddr = 0;
                     _devicesList.SelectedIndex = items.Count - 1;
-                    AppendLog($"Auto-reconnect: found paired device {FormatAddr(target)}, connecting…");
+                    AppendLog($"Auto-reconnect: found paired device {FormatAddr(target)}, connectingâ€¦");
                     StopScanInternal();
                     _ = ToggleConnectionAsync();
                 }
@@ -1595,7 +1595,7 @@ public partial class MainWindow : Window
             AppendLog($"Scan finished. {count} device(s) found.");
             // Say the next step out loud. A user in issue #3 got this far,
             // saw the device listed as paired, and reasonably assumed it was
-            // connected — the status stayed Disconnected and no MIDI flowed
+            // connected â€” the status stayed Disconnected and no MIDI flowed
             // because Connect was never pressed.
             if (count > 0 && !_ble.IsConnected)
                 AppendLog("Select the device above and click Connect to start bridging its MIDI.");
@@ -1640,7 +1640,7 @@ public partial class MainWindow : Window
         if (_ble.IsConnected)
         {
             _connectBtn.IsEnabled = false;
-            _connectBtn.Content   = "Disconnecting…";
+            _connectBtn.Content   = "Disconnectingâ€¦";
             try
             {
                 _bridge.Stop();
@@ -1669,12 +1669,12 @@ public partial class MainWindow : Window
         {
             // Fatal-for-bridge but not for BLE: connect anyway so the user
             // can still drive the on-screen keyboard to test the link.
-            AppendLog("No host endpoint available — connecting BLE only. " +
+            AppendLog("No host endpoint available â€” connecting BLE only. " +
                       "Use the on-screen keyboard to verify the BLE link.");
         }
 
         _connectBtn.IsEnabled = false;
-        _connectBtn.Content   = "Connecting…";
+        _connectBtn.Content   = "Connectingâ€¦";
 
         bool ok;
         try { ok = await _ble.ConnectAsync(pick.addr, removeStaleBond: !IsPairedOnly(pick.addr)); }
@@ -1689,7 +1689,7 @@ public partial class MainWindow : Window
         }
 
         // Persist for the auto-reconnect flow on the next launch. We save
-        // even if the bridge later fails to start — the user could be
+        // even if the bridge later fails to start â€” the user could be
         // testing the BLE link via the on-screen keyboard, and this is
         // still the device they care about.
         try
@@ -1716,7 +1716,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        AppendLog($"Bridging '{pick.name}' ⇄ {(_activeBackend == "Virtual" ? "virtual port" : "loopback endpoint")} '{_bridgeEndpoint.DisplayName}'. " +
+        AppendLog($"Bridging '{pick.name}' â‡„ {(_activeBackend == "Virtual" ? "virtual port" : "loopback endpoint")} '{_bridgeEndpoint.DisplayName}'. " +
                   "Any app that opens this endpoint will now see your BT device.");
         }
         finally { _connectInFlight = false; }
@@ -1746,13 +1746,13 @@ public partial class MainWindow : Window
     /// In Virtual mode we hand back the long-lived
     /// <see cref="_virtualEndpoint"/> (already open) and mark
     /// <c>_bridgeOwnsEndpoint=false</c> so the disconnect path leaves it
-    /// alive — the port stays visible to DAWs across BLE connect/disconnect
+    /// alive â€” the port stays visible to DAWs across BLE connect/disconnect
     /// cycles. If the user has typed a new port name without clicking
     /// Apply, we silently apply it here too (same UX as before).
     ///
     /// In Loopback mode we create a fresh <see cref="WinMMHostEndpoint"/>
     /// and call <c>Open()</c>; the disconnect path disposes it.
-    /// Returns <c>false</c> if no usable endpoint can be built — the bridge
+    /// Returns <c>false</c> if no usable endpoint can be built â€” the bridge
     /// stays in BLE-only mode.
     /// </remarks>
     private async Task<bool> AcquireBridgeEndpointAsync()
@@ -1779,7 +1779,7 @@ public partial class MainWindow : Window
 
             if (_virtualEndpoint is null)
             {
-                AppendLog("Virtual endpoint isn't available — see earlier WMS log lines for the reason.");
+                AppendLog("Virtual endpoint isn't available â€” see earlier WMS log lines for the reason.");
                 return false;
             }
             _bridgeEndpoint = _virtualEndpoint;
@@ -1789,7 +1789,7 @@ public partial class MainWindow : Window
 
         if (_portCombo.SelectedItem is not PortPair port)
         {
-            AppendLog("No loopback endpoint selected — pick one in card 1 or click Refresh.");
+            AppendLog("No loopback endpoint selected â€” pick one in card 1 or click Refresh.");
             return false;
         }
         var ep = new WinMMHostEndpoint(port.InputId, port.OutputId, port.Name);
@@ -1811,7 +1811,7 @@ public partial class MainWindow : Window
     /// is left null so callers can detect the unavailable state.
     /// </summary>
     /// <remarks>
-    /// The actual <c>Open()</c> call is forced to a background thread —
+    /// The actual <c>Open()</c> call is forced to a background thread â€”
     /// WMS's <c>MidiVirtualDeviceManager.CreateVirtualDevice</c> is a
     /// synchronous WinRT call that can block several seconds (especially
     /// when a previous process just exited and the service hasn't yet
@@ -1838,7 +1838,7 @@ public partial class MainWindow : Window
         {
             if (delaysMs[attempt] > 0)
             {
-                AppendLog($"Virtual port '{name}' creation attempt {attempt + 1}/{delaysMs.Length} (waiting {delaysMs[attempt]} ms for WMS to settle)…");
+                AppendLog($"Virtual port '{name}' creation attempt {attempt + 1}/{delaysMs.Length} (waiting {delaysMs[attempt]} ms for WMS to settle)â€¦");
                 await Task.Delay(delaysMs[attempt]).ConfigureAwait(true);
             }
 
@@ -1851,7 +1851,32 @@ public partial class MainWindow : Window
             bool opened;
             try
             {
-                opened = await Task.Run(() => ep.Open()).ConfigureAwait(true);
+                // Bounded, because a wedged Windows MIDI Service makes this
+                // call block forever rather than fail. That is what an earlier
+                // reporter hit: no "is live" line, no error either, startup
+                // stuck mid-way with a half-drawn window and a dead Connect
+                // button (issue #4). We cannot repair the service ourselves â€”
+                // starting and stopping midisrv is denied to non-elevated
+                // users â€” so the next best thing is to notice quickly, say so,
+                // and leave the user a working app on the loopback path.
+                var openTask = Task.Run(() => ep.Open());
+                if (await Task.WhenAny(openTask, Task.Delay(VirtualEndpointOpenTimeoutMs))
+                              .ConfigureAwait(true) != openTask)
+                {
+                    _wmsUnresponsive = true;
+                    AppendLog($"Windows MIDI Services did not respond within " +
+                              $"{VirtualEndpointOpenTimeoutMs / 1000}s while creating the port. " +
+                              "The service is most likely stuck from an earlier session.");
+                    AppendLog("To repair it: open an Administrator terminal and run  midi service restart  " +
+                              "(or restart Windows). Falling back to the classic loopback path for now so the " +
+                              "app stays usable.");
+                    // Deliberately NOT awaited or disposed: the thread is stuck
+                    // inside the SDK and touching the endpoint again would just
+                    // block us too. Leaking it is the lesser evil; the process
+                    // is the only thing that can clean it up now.
+                    return;
+                }
+                opened = await openTask.ConfigureAwait(true);
             }
             finally
             {
@@ -1863,13 +1888,13 @@ public partial class MainWindow : Window
                 return;
             }
             // Open() already logged the specific failure cause; dispose the
-            // half-built endpoint off the UI thread too — Dispose can also
+            // half-built endpoint off the UI thread too â€” Dispose can also
             // make synchronous WMS calls.
             await Task.Run(() => { try { ep.Dispose(); } catch { } }).ConfigureAwait(true);
         }
 
         AppendLog($"Could not create virtual MIDI port '{name}' after {delaysMs.Length} attempts. " +
-                  "Restarting the app usually clears this — see the activity log for the underlying WMS error.");
+                  "Restarting the app usually clears this â€” see the activity log for the underlying WMS error.");
     }
 
     /// <summary>
@@ -1881,8 +1906,8 @@ public partial class MainWindow : Window
     /// process exit on the quit path: Shutdown() could kill the process while
     /// the WMS session disconnect was still in flight, leaving the service
     /// holding a half-released virtual device. The symptom was brutal and
-    /// system-wide — on the next launch the port never came back, and even the
-    /// MIDI Settings app hung on "Starting MIDI service…" until reboot (#4).
+    /// system-wide â€” on the next launch the port never came back, and even the
+    /// MIDI Settings app hung on "Starting MIDI serviceâ€¦" until reboot (#4).
     /// The same race also let a rename/backend-switch start creating the new
     /// endpoint before the old one had let go of the name.
     ///
@@ -1897,7 +1922,7 @@ public partial class MainWindow : Window
         _virtualEndpoint = null;
 
         // Dispose goes into the SDK's native runtime, so keep it off the UI
-        // thread — every other heavy WMS call in this class already does.
+        // thread â€” every other heavy WMS call in this class already does.
         var dispose = Task.Run(() => { try { ep.Dispose(); } catch { } });
         var completed = await Task.WhenAny(dispose, Task.Delay(VirtualEndpointTeardownTimeoutMs))
                                   .ConfigureAwait(true);
@@ -1924,6 +1949,21 @@ public partial class MainWindow : Window
     /// </remarks>
     private const int VirtualEndpointTeardownTimeoutMs = 15000;
 
+    /// <summary>
+    /// How long to wait for the SDK to create the virtual port before deciding
+    /// the service is stuck. Generous: creation legitimately takes a moment on
+    /// a cold service, and a false positive drops the user to loopback
+    /// needlessly.
+    /// </summary>
+    private const int VirtualEndpointOpenTimeoutMs = 20000;
+
+    /// <summary>
+    /// Set when a WMS call timed out this run, meaning the service itself is
+    /// wedged rather than the SDK being absent. Drives the fallback to loopback
+    /// and the repair advice; we cannot fix midisrv ourselves without admin.
+    /// </summary>
+    private bool _wmsUnresponsive;
+
     // ===================================================================
     //  Log
     // ===================================================================
@@ -1931,7 +1971,7 @@ public partial class MainWindow : Window
     {
         // Always feed the global crash buffer + optional --log file FIRST,
         // even during shutdown. The cross-thread re-post below would lose
-        // the line if a crash hit the UI thread before it could drain — and
+        // the line if a crash hit the UI thread before it could drain â€” and
         // those final lines are exactly what we want in the crash dump.
         // CrashLog.Append is internally locked, so it's safe from any thread
         // and only sees each line once (the UI-thread re-post path below
@@ -2032,7 +2072,7 @@ public partial class MainWindow : Window
         if (!prefs.AutoReconnectOnLaunch) return;
         if (!DeviceSettingsStore.TryParseMac(prefs.LastConnectedMac, out ulong addr)) return;
 
-        AppendLog($"Auto-reconnect: scanning for last device {prefs.LastConnectedMac}…");
+        AppendLog($"Auto-reconnect: scanning for last device {prefs.LastConnectedMac}â€¦");
         _autoConnectAddr = addr;
         SafeRun(StartScan);
     }
@@ -2050,7 +2090,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <remarks>
     /// All WMS calls (SDK init + virtual-device open) are forced to a
-    /// background thread so they don't block the UI thread — they can each
+    /// background thread so they don't block the UI thread â€” they can each
     /// take several seconds, especially the first time after a previous
     /// process exited (the WMS service needs a moment to clean up the
     /// prior endpoint registration before a new one with the same name
@@ -2065,7 +2105,7 @@ public partial class MainWindow : Window
         string preferred = prefs.HostBackend ?? "Auto";
 
         // Heavy: WMS SDK runtime initialisation. First call loads the
-        // runtime DLLs and brings the service into a working state — can
+        // runtime DLLs and brings the service into a working state â€” can
         // take 100ms-2s. Move off UI thread.
         bool wmsAvailable = await Task.Run(() => WmsRuntime.EnsureInitialized(AppendLog))
                                       .ConfigureAwait(true);
@@ -2094,11 +2134,11 @@ public partial class MainWindow : Window
                     AppendLog("Using the legacy loopback path this run because the Windows MIDI Services " +
                               "SDK was skipped as a precaution, after a previous run stopped inside it. " +
                               "Your SDK runtime install is almost certainly fine. " +
-                              "Click 'Use a virtual MIDI port instead…' above to try it again now.");
+                              "Click 'Use a virtual MIDI port insteadâ€¦' above to try it again now.");
                 }
                 else
                 {
-                    AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
+                    AppendLog("WMS App SDK runtime not detected â€” using the legacy loopback path. " +
                               "Install the WMS SDK Runtime and Tools from https://aka.ms/midi to " +
                               "let this app create its own MIDI port (no loopback setup needed).");
                 }
@@ -2115,12 +2155,29 @@ public partial class MainWindow : Window
 
         // Open or close the long-lived virtual endpoint to match the active
         // backend. In Virtual mode this makes the port visible to DAWs
-        // immediately, before any BLE device is connected — which is the
+        // immediately, before any BLE device is connected â€” which is the
         // whole point of the WMS-virtual-device model.
         if (_activeBackend == "Virtual")
+        {
             await EnsureVirtualEndpointOpenAsync().ConfigureAwait(true);
+
+            // The service didn't answer, so there is no port and there won't
+            // be one until it is repaired. Staying in Virtual mode would leave
+            // the user staring at a card describing a port that doesn't exist.
+            // Drop to loopback for THIS SESSION ONLY â€” the saved preference is
+            // untouched, so a later launch tries the virtual port again once
+            // the service is healthy.
+            if (_wmsUnresponsive && _virtualEndpoint is null)
+            {
+                _activeBackend = "Loopback";
+                ApplyBackendVisibility();
+                RefreshVirtualPorts();
+            }
+        }
         else
+        {
             await CloseVirtualEndpointAsync().ConfigureAwait(true);
+        }
     }
 
     private void ApplyBackendVisibility()
@@ -2131,11 +2188,11 @@ public partial class MainWindow : Window
 
         // In the loopback panel the secondary link's purpose flips, and there
         // are THREE states, not two:
-        //   - Installed        → offer to switch to the virtual port.
-        //   - Probe skipped    → also offer to switch. Safe mode means we
+        //   - Installed        â†’ offer to switch to the virtual port.
+        //   - Probe skipped    â†’ also offer to switch. Safe mode means we
         //                        never asked, so we must not claim it's
         //                        missing. Clicking retries the probe.
-        //   - Probed, missing  → offer the install link (browser).
+        //   - Probed, missing  â†’ offer the install link (browser).
         // Collapsing the middle case into "missing" told a user with the
         // correct runtime installed to go and install it, and left him no way
         // back to the virtual port at all (issue #3).
@@ -2155,7 +2212,7 @@ public partial class MainWindow : Window
         // fall straight back to loopback, and the link would look broken.
         if (newBackend == "Virtual" && WmsRuntime.ProbeSkipped)
         {
-            AppendLog("Retrying the Windows MIDI Services SDK, which was skipped this run as a precaution…");
+            AppendLog("Retrying the Windows MIDI Services SDK, which was skipped this run as a precautionâ€¦");
             StartupTrace.ClearSafeMode();
             WmsRuntime.ResetForRetry();
         }
@@ -2168,7 +2225,7 @@ public partial class MainWindow : Window
 
         if (_bridge.Running)
         {
-            // Active session — tear it down, swap backend, reconnect.
+            // Active session â€” tear it down, swap backend, reconnect.
             // (Previously this just logged a "disconnect first" line and
             // refused, which made the link feel broken.)
             await SwitchBackendAndReconnectAsync(newBackend).ConfigureAwait(true);
@@ -2204,7 +2261,7 @@ public partial class MainWindow : Window
         try
         {
             ulong addr = _ble.CurrentAddress;
-            AppendLog($"Switching backend to {newBackend} — disconnecting and reconnecting…");
+            AppendLog($"Switching backend to {newBackend} â€” disconnecting and reconnectingâ€¦");
 
             _bridge.Stop();
             ReleaseBridgeEndpoint();
@@ -2226,7 +2283,7 @@ public partial class MainWindow : Window
             catch (Exception ex) { AppendLog($"Reconnect after backend switch: {ex.Message}"); ok = false; }
             if (!ok)
             {
-                AppendLog("Reconnect after backend switch failed — try Scan and Connect manually.");
+                AppendLog("Reconnect after backend switch failed â€” try Scan and Connect manually.");
                 return;
             }
 
@@ -2253,7 +2310,7 @@ public partial class MainWindow : Window
         string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(name))
         {
-            AppendLog("Virtual port name can't be empty — keeping previous name.");
+            AppendLog("Virtual port name can't be empty â€” keeping previous name.");
             _virtualPortNameBox.Text = AppSettingsStore.Load().VirtualPortName;
             return;
         }
@@ -2269,14 +2326,14 @@ public partial class MainWindow : Window
         // If we're in Virtual mode and the long-lived endpoint is open under
         // a different name, recreate it now so the DAW sees the new name
         // immediately. If a BLE session is in flight, take the BLE link down
-        // first, swap the endpoint, and reconnect to the same device — the
+        // first, swap the endpoint, and reconnect to the same device â€” the
         // user otherwise gets a port that they can't actually drive until
         // they manually disconnect.
         if (_activeBackend == "Virtual" && nameChanged)
         {
             if (_bridge.Running)
             {
-                AppendLog($"Virtual port name saved as '{name}'. Reconnecting BLE so the new name takes effect…");
+                AppendLog($"Virtual port name saved as '{name}'. Reconnecting BLE so the new name takes effectâ€¦");
                 _ = ApplyVirtualNameAndReconnectAsync();
             }
             else
@@ -2334,18 +2391,18 @@ public partial class MainWindow : Window
             await RecreateVirtualEndpointAsync().ConfigureAwait(true);
             if (_virtualEndpoint is null)
             {
-                AppendLog("Could not recreate virtual endpoint — please scan and reconnect manually.");
+                AppendLog("Could not recreate virtual endpoint â€” please scan and reconnect manually.");
                 return;
             }
 
             // Reconnect BLE to the same device. Same retry semantics as a
-            // normal Connect — BleMidiClient handles the pairing dance.
+            // normal Connect â€” BleMidiClient handles the pairing dance.
             bool ok;
             try { ok = await _ble.ConnectAsync(addr, removeStaleBond: !IsPairedOnly(addr)); }
             catch (Exception ex) { AppendLog($"Reconnect after rename failed: {ex.Message}"); ok = false; }
             if (!ok)
             {
-                AppendLog("Reconnect after rename failed — try Scan and Connect manually.");
+                AppendLog("Reconnect after rename failed â€” try Scan and Connect manually.");
                 return;
             }
 
@@ -2362,19 +2419,19 @@ public partial class MainWindow : Window
         finally { _connectInFlight = false; }
     }
 
-    /// <summary>Static reminder appended to both DAW hints — most hosts only
+    /// <summary>Static reminder appended to both DAW hints â€” most hosts only
     /// enumerate MIDI ports at their own startup, so an endpoint that
     /// appears later won't show up until the host is restarted (or, for
     /// Web MIDI sites, the page is refreshed).</summary>
     private const string RestartHostHint =
-        "If it doesn't show up yet, restart the DAW (or refresh the browser tab) — most apps enumerate MIDI ports only at startup.";
+        "If it doesn't show up yet, restart the DAW (or refresh the browser tab) â€” most apps enumerate MIDI ports only at startup.";
 
     private void UpdateVirtualDawHint()
     {
         string name = (_virtualPortNameBox.Text ?? string.Empty).Trim();
         if (string.IsNullOrEmpty(name)) name = "BT-MIDI Bridge";
         _virtualDawHint.Text =
-            $"In your DAW / Web MIDI site, open “{name}” as BOTH the MIDI input and MIDI output. " +
+            $"In your DAW / Web MIDI site, open â€œ{name}â€ as BOTH the MIDI input and MIDI output. " +
             RestartHostHint;
     }
 
@@ -2386,7 +2443,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            // Browser unavailable — nothing sensible to fall back to.
+            // Browser unavailable â€” nothing sensible to fall back to.
         }
     }
 }
