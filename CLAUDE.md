@@ -240,6 +240,17 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   ownership semantics — disposing the long-lived virtual endpoint on
   disconnect would make the port disappear from DAWs every time the user
   toggles Connect, which was the whole bug we just fixed.
+- **The "wedged service" is microsoft/MIDI#1047, not our bug.** On affected
+  Windows builds only the FIRST client after the service starts can create a
+  virtual device; every later one blocks inside `CreateVirtualDevice`. Our
+  init sequence is character-for-character the one in that report and in
+  Microsoft's own sample, so this is not API misuse. Pete Brown confirmed
+  2026-08-16 that he fixed it and the fix ships in Windows in November 2026
+  (internal ADO 63135869). It explains ALL THREE of our reports: #4
+  ("won't reconnect until I reboot"), #3 ("close button breaks it"), and #5
+  (`0xC0000409` fastfail during SDK init, which is how the poisoned state
+  manifests on some builds). Do NOT go looking for a fix on our side; when
+  the November update lands, re-test before changing anything here.
 - **We cannot repair a wedged WMS service ourselves.** `midisrv` grants
   Interactive Users query/read only — `sc sdshow midisrv` shows no `RP`/`WP`
   (start/stop) for `IU`, and the WMS CLI says service commands need an

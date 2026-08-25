@@ -185,6 +185,15 @@
                     Margin="0,8,0,8"
                     IsVisible="False"
                     ToolTip.Tip="Switch to the WMS App SDK virtual-device backend. The app will declare its own MIDI port on demand; no loopback to create."/>
+            <Button x:Name="RepairMidiServiceBtn"
+                    Classes="link"
+                    Content="Repair Windows MIDI Services to restore the virtual port (admin)…"
+                    HorizontalAlignment="Left"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    FontSize="11"
+                    Margin="0,8,0,8"
+                    IsVisible="False"
+                    ToolTip.Tip="Restarts the shared Windows MIDI Service, which clears the known Windows bug that blocks virtual MIDI ports. Asks for administrator rights. Other MIDI apps briefly lose their ports."/>
             <Button x:Name="InstallSdkRuntimeBtn"
                     Classes="link"
                     Content="Install the WMS App SDK Runtime to skip this step…"
