@@ -1914,7 +1914,15 @@ public partial class MainWindow : Window
     /// enough for a slow-but-working service, short enough that quitting never
     /// feels hung.
     /// </summary>
-    private const int VirtualEndpointTeardownTimeoutMs = 5000;
+    /// <remarks>
+    /// Raised from 5s. Hitting this timeout is the failure we are trying to
+    /// avoid, not a safety net we want to rely on: giving up mid-disconnect
+    /// leaves the service holding a half-released device, which is the wedge
+    /// from issue #4. On a machine where the service is slow to respond, a
+    /// tight timeout re-creates the very bug the awaited teardown fixed.
+    /// Better to wait longer on the rare slow exit than to strand the service.
+    /// </remarks>
+    private const int VirtualEndpointTeardownTimeoutMs = 15000;
 
     // ===================================================================
     //  Log
@@ -2078,9 +2086,22 @@ public partial class MainWindow : Window
             _activeBackend = wmsAvailable ? "Virtual" : "Loopback";
             if (!wmsAvailable && preferred == "Auto")
             {
-                AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
-                          "Install the WMS SDK Runtime and Tools from https://aka.ms/midi to " +
-                          "let this app create its own MIDI port (no loopback setup needed).");
+                // Two very different reasons to be here. Saying "not detected"
+                // when we simply didn't look is wrong and sends people off to
+                // reinstall a runtime they already have (issue #3).
+                if (WmsRuntime.ProbeSkipped)
+                {
+                    AppendLog("Using the legacy loopback path this run because the Windows MIDI Services " +
+                              "SDK was skipped as a precaution, after a previous run stopped inside it. " +
+                              "Your SDK runtime install is almost certainly fine. " +
+                              "Click 'Use a virtual MIDI port instead…' above to try it again now.");
+                }
+                else
+                {
+                    AppendLog("WMS App SDK runtime not detected — using the legacy loopback path. " +
+                              "Install the WMS SDK Runtime and Tools from https://aka.ms/midi to " +
+                              "let this app create its own MIDI port (no loopback setup needed).");
+                }
             }
         }
 
@@ -2108,19 +2129,36 @@ public partial class MainWindow : Window
         _virtualPanel.IsVisible  = virtualMode;
         _loopbackPanel.IsVisible = !virtualMode;
 
-        // In the loopback panel, the secondary link's purpose flips based
-        // on whether the SDK runtime is actually installed on this machine:
-        //   - Installed → offer to switch backends (the path the user got
-        //                 stuck in if they had pinned Loopback).
-        //   - Missing   → offer the install link (browser).
+        // In the loopback panel the secondary link's purpose flips, and there
+        // are THREE states, not two:
+        //   - Installed        → offer to switch to the virtual port.
+        //   - Probe skipped    → also offer to switch. Safe mode means we
+        //                        never asked, so we must not claim it's
+        //                        missing. Clicking retries the probe.
+        //   - Probed, missing  → offer the install link (browser).
+        // Collapsing the middle case into "missing" told a user with the
+        // correct runtime installed to go and install it, and left him no way
+        // back to the virtual port at all (issue #3).
         bool sdkAvailable = WmsRuntime.IsAvailable;
-        _useVirtualInsteadBtn.IsVisible = !virtualMode && sdkAvailable;
-        _installSdkRuntimeBtn.IsVisible = !virtualMode && !sdkAvailable;
+        bool probeSkipped = WmsRuntime.ProbeSkipped;
+        _useVirtualInsteadBtn.IsVisible = !virtualMode && (sdkAvailable || probeSkipped);
+        _installSdkRuntimeBtn.IsVisible = !virtualMode && !sdkAvailable && !probeSkipped;
     }
 
     private async Task SwitchBackendAsync(string newBackend)
     {
         if (_activeBackend == newBackend) return;
+
+        // Asking for the virtual port is an explicit "try it again" when safe
+        // mode skipped the probe. Without this the switch would be a no-op:
+        // EnsureInitialized would return its cached "skipped" answer, we would
+        // fall straight back to loopback, and the link would look broken.
+        if (newBackend == "Virtual" && WmsRuntime.ProbeSkipped)
+        {
+            AppendLog("Retrying the Windows MIDI Services SDK, which was skipped this run as a precaution…");
+            StartupTrace.ClearSafeMode();
+            WmsRuntime.ResetForRetry();
+        }
 
         // Persist the new preference up front. We store the explicit
         // backend rather than "Auto" so the user's switch is sticky.

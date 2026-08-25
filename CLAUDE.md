@@ -240,6 +240,16 @@ The exe is `dist\PerfectBluetoothMidi.exe`. No args = GUI; any recognised CLI fl
   ownership semantics — disposing the long-lived virtual endpoint on
   disconnect would make the port disappear from DAWs every time the user
   toggles Connect, which was the whole bug we just fixed.
+- **"Not probed" is not "not installed"**: when `StartupTrace` safe mode skips
+  the WMS probe, `WmsRuntime.IsAvailable` is false but so is any knowledge of
+  the machine. `WmsRuntime.ProbeSkipped` distinguishes the two, and every
+  branch that reacts to `!IsAvailable` MUST check it. Collapsing them told a
+  user whose runtime was correctly installed to go install it, and left the
+  loopback panel with no route back to the virtual port (issue #3). The
+  "Use a virtual MIDI port instead…" link doubles as the escape hatch: in
+  safe mode `SwitchBackendAsync` calls `StartupTrace.ClearSafeMode` +
+  `WmsRuntime.ResetForRetry` first, or the switch would silently no-op on the
+  cached answer.
 - **Backend switching**: `AppSettings.HostBackend` is "Auto" (default),
   "Virtual", or "Loopback". `MainWindow.DetectAndApplyBackend` runs once at
   startup and ALWAYS probes `WmsRuntime.EnsureInitialized` (even when

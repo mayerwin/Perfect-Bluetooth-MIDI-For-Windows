@@ -149,6 +149,20 @@ internal static class StartupTrace
     /// </summary>
     public static void ClearPhase() => Clear();
 
+    /// <summary>
+    /// Drop safe mode for the rest of this run, so the next EnsureInitialized
+    /// probes for real. Called when the user explicitly asks to try the
+    /// virtual port again; the equivalent of --wms, but reachable from the UI.
+    /// </summary>
+    public static void ClearSafeMode()
+    {
+        lock (_lock)
+        {
+            SkipWmsProbe  = false;
+            SkipWmsReason = null;
+        }
+    }
+
     /// <summary>Startup got far enough that a crash is no longer a startup crash.</summary>
     public static void Complete() => Clear();
 

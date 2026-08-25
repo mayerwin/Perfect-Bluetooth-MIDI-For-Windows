@@ -28,6 +28,7 @@ internal static class WmsRuntime
     private static bool _attempted;
     private static bool _available;
     private static string? _failureReason;
+    private static bool _probeSkipped;
     // Held for the lifetime of the process. Disposing it tears down the WMS
     // type-redirection shim, which would break every other WMS call afterwards.
     private static IDisposable? _initializer;
@@ -52,6 +53,40 @@ internal static class WmsRuntime
     }
 
     /// <summary>
+    /// True when the SDK was never actually probed this run because safe mode
+    /// skipped it, as opposed to being probed and found missing.
+    ///
+    /// Callers MUST distinguish the two. Treating "not probed" as "not
+    /// installed" is what put a user with a perfectly good runtime in front of
+    /// an "Install the WMS App SDK Runtime" prompt, with no way back to the
+    /// virtual port (issue #3). Safe mode means "we don't know", never "it
+    /// isn't there".
+    /// </summary>
+    public static bool ProbeSkipped
+    {
+        get { lock (_gate) return _probeSkipped; }
+    }
+
+    /// <summary>
+    /// Forget a cached failure so the next <see cref="EnsureInitialized"/>
+    /// probes for real. For the user explicitly retrying after safe mode
+    /// latched; pair it with <see cref="StartupTrace.ClearSafeMode"/>.
+    /// Never clears a SUCCESSFUL init: the SDK can only be initialised once
+    /// per process and the initialiser must stay alive for the process
+    /// lifetime, so re-running it would break every later WMS call.
+    /// </summary>
+    public static void ResetForRetry()
+    {
+        lock (_gate)
+        {
+            if (_available) return;
+            _attempted     = false;
+            _probeSkipped  = false;
+            _failureReason = null;
+        }
+    }
+
+    /// <summary>
     /// Lazily initialise the WMS SDK runtime. Returns true if the SDK is
     /// usable from this point on; false otherwise (caller should fall back
     /// to the WinMM loopback path). Safe to call repeatedly — only the first
@@ -69,6 +104,7 @@ internal static class WmsRuntime
             // back to the loopback backend, which needs none of its DLLs.
             if (StartupTrace.SkipWmsProbe)
             {
+                _probeSkipped = true;
                 _failureReason = $"WMS SDK probe skipped: {StartupTrace.SkipWmsReason}";
                 log?.Invoke(_failureReason);
                 return false;
