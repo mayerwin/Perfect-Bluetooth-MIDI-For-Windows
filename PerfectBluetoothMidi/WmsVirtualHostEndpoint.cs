@@ -113,6 +113,11 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
             // Session naming is for diagnostics in MIDI Settings; we use the
             // display name so a user looking at the connections list can see
             // which app owns the endpoint.
+            // Each SDK call is announced BEFORE it runs. When the service is in
+            // the state described by microsoft/MIDI#1047 one of these blocks and
+            // never returns, and without per-call lines the log can only say
+            // "somewhere in here". The last line printed names the exact call.
+            Log?.Invoke("[open 1/5] MidiSession.Create…");
             _session = MidiSession.Create(DisplayName);
             if (_session is null)
             {
@@ -120,6 +125,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
                 return false;
             }
 
+            Log?.Invoke("[open 2/5] MidiVirtualDeviceManager.CreateVirtualDevice…");
             _virtualDevice = MidiVirtualDeviceManager.CreateVirtualDevice(config);
             if (_virtualDevice is null)
             {
@@ -132,6 +138,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
             // to bubble up to MidiReceived.
             _virtualDevice.SuppressHandledMessages = true;
 
+            Log?.Invoke("[open 3/5] MidiSession.CreateEndpointConnection…");
             _connection = _session.CreateEndpointConnection(_virtualDevice.DeviceEndpointDeviceId);
             if (_connection is null)
             {
@@ -142,9 +149,11 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
 
             // The virtual device must be wired in as a message-processing
             // plugin BEFORE Open(), so it can intercept the discovery dance.
+            Log?.Invoke("[open 4/5] AddMessageProcessingPlugin…");
             _connection.AddMessageProcessingPlugin(_virtualDevice);
             _connection.MessageReceived += OnConnectionMessageReceived;
 
+            Log?.Invoke("[open 5/5] MidiEndpointConnection.Open…");
             if (!_connection.Open())
             {
                 Log?.Invoke("MidiEndpointConnection.Open() returned false.");
