@@ -43,6 +43,27 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
         DisplayName = displayName;
     }
 
+    /// <summary>
+    /// The SDK call currently in flight inside <see cref="Open"/>, or the last
+    /// one that completed. Read by the caller when its timeout fires, so the
+    /// failure message can name the exact call that blocked rather than just
+    /// reporting that the open timed out.
+    ///
+    /// Written on the thread running Open (a pool thread) and read from the UI
+    /// thread, hence volatile. Deliberately a plain string, not a log line:
+    /// announcing all five steps on every healthy launch would be noise, so
+    /// the per-step logging is Verbose-only and this field carries the detail
+    /// into the failure path regardless of the Verbose setting.
+    /// </summary>
+    private volatile string _lastOpenStep = "(not started)";
+    public string LastOpenStep => _lastOpenStep;
+
+    private void Step(string name)
+    {
+        _lastOpenStep = name;
+        if (Diag.Verbose) Log?.Invoke($"[open] {name}…");
+    }
+
     public bool Open()
     {
         if (_opened) return true;
@@ -113,11 +134,14 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
             // Session naming is for diagnostics in MIDI Settings; we use the
             // display name so a user looking at the connections list can see
             // which app owns the endpoint.
-            // Each SDK call is announced BEFORE it runs. When the service is in
-            // the state described by microsoft/MIDI#1047 one of these blocks and
-            // never returns, and without per-call lines the log can only say
-            // "somewhere in here". The last line printed names the exact call.
-            Log?.Invoke("[open 1/5] MidiSession.Create…");
+            // Each SDK call records itself in LastOpenStep BEFORE it runs. When
+            // the service is in the state described by microsoft/MIDI#1047 one
+            // of these blocks and never returns, and the caller's timeout can
+            // then name the exact call instead of just "the open timed out".
+            // The per-call log lines are Verbose-only: five extra lines on every
+            // healthy launch is noise, and the failure path reports the step
+            // anyway without needing Verbose turned on.
+            Step("MidiSession.Create");
             _session = MidiSession.Create(DisplayName);
             if (_session is null)
             {
@@ -125,7 +149,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
                 return false;
             }
 
-            Log?.Invoke("[open 2/5] MidiVirtualDeviceManager.CreateVirtualDevice…");
+            Step("MidiVirtualDeviceManager.CreateVirtualDevice");
             _virtualDevice = MidiVirtualDeviceManager.CreateVirtualDevice(config);
             if (_virtualDevice is null)
             {
@@ -138,7 +162,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
             // to bubble up to MidiReceived.
             _virtualDevice.SuppressHandledMessages = true;
 
-            Log?.Invoke("[open 3/5] MidiSession.CreateEndpointConnection…");
+            Step("MidiSession.CreateEndpointConnection");
             _connection = _session.CreateEndpointConnection(_virtualDevice.DeviceEndpointDeviceId);
             if (_connection is null)
             {
@@ -149,11 +173,11 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
 
             // The virtual device must be wired in as a message-processing
             // plugin BEFORE Open(), so it can intercept the discovery dance.
-            Log?.Invoke("[open 4/5] AddMessageProcessingPlugin…");
+            Step("AddMessageProcessingPlugin");
             _connection.AddMessageProcessingPlugin(_virtualDevice);
             _connection.MessageReceived += OnConnectionMessageReceived;
 
-            Log?.Invoke("[open 5/5] MidiEndpointConnection.Open…");
+            Step("MidiEndpointConnection.Open");
             if (!_connection.Open())
             {
                 Log?.Invoke("MidiEndpointConnection.Open() returned false.");
@@ -222,7 +246,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
                 {
                     try
                     {
-                        Log?.Invoke("[teardown] removing the virtual-device message plugin…");
+                        if (Diag.Verbose) Log?.Invoke("[teardown] removing the virtual-device message plugin…");
                         // Takes the plugin's Id, not the plugin instance, and
                         // Id lives on the plugin interface rather than on
                         // MidiVirtualDevice itself, so the cast is required.
@@ -236,7 +260,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
                 {
                     try
                     {
-                        Log?.Invoke("[teardown] disconnecting the endpoint connection…");
+                        if (Diag.Verbose) Log?.Invoke("[teardown] disconnecting the endpoint connection…");
                         _session.DisconnectEndpointConnection(connection.ConnectionId);
                     }
                     catch (Exception ex) { Log?.Invoke($"[teardown] disconnect failed: {ex.Message}"); }
@@ -250,7 +274,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
             {
                 try
                 {
-                    Log?.Invoke("[teardown] disposing the MIDI session…");
+                    if (Diag.Verbose) Log?.Invoke("[teardown] disposing the MIDI session…");
                     _session.Dispose();
                 }
                 catch (Exception ex) { Log?.Invoke($"[teardown] session dispose failed: {ex.Message}"); }
@@ -259,7 +283,7 @@ internal sealed class WmsVirtualHostEndpoint : IHostMidiEndpoint
 
             _receiver.Reset();
             _opened = false;
-            Log?.Invoke($"[teardown] virtual endpoint '{DisplayName}' released.");
+            if (Diag.Verbose) Log?.Invoke($"[teardown] virtual endpoint '{DisplayName}' released.");
         }
     }
 

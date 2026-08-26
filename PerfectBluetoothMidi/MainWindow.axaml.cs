@@ -771,6 +771,11 @@ public partial class MainWindow : Window
         InitThemeCombo();
         _themeCombo.SelectionChanged += (_, _) => OnThemeComboChanged();
 
+        // Seed the box from Diag.Verbose BEFORE wiring the handler. --verbose
+        // sets Diag.Verbose during Program.Main, and the handler below fires
+        // while the control initialises — so wiring first silently set
+        // Diag.Verbose back to false and the flag did nothing in GUI mode.
+        _verboseBox.IsChecked = Diag.Verbose;
         _verboseBox.IsCheckedChanged += (_, _) =>
         {
             bool v = _verboseBox.IsChecked == true;
@@ -2027,8 +2032,13 @@ public partial class MainWindow : Window
                     // device; every later one blocks here. Microsoft has fixed
                     // it and the fix ships in Windows in November 2026. Say so
                     // plainly rather than implying the machine is broken.
+                    // Name the exact SDK call that blocked. This is the one
+                    // detail Microsoft needs to act on a report, and it must
+                    // not require the user to have had Verbose switched on
+                    // before the failure happened.
                     AppendLog($"Windows MIDI Services did not respond within " +
-                              $"{VirtualEndpointOpenTimeoutMs / 1000}s while creating the port.");
+                              $"{VirtualEndpointOpenTimeoutMs / 1000}s while creating the port. " +
+                              $"Stalled at: {ep.LastOpenStep}.");
                     AppendLog("This is a known Windows bug (microsoft/MIDI issue 1047), already fixed by " +
                               "Microsoft and due in a Windows update in November 2026. On affected builds only " +
                               "the first app to create a virtual MIDI port after Windows starts succeeds.");

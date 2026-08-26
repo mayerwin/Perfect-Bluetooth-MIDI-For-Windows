@@ -119,7 +119,7 @@ internal static class WmsRuntime
                 // how we find out which one did it. Don't collapse these
                 // into a single "initialising…" line.
                 StartupTrace.Begin(StartupTrace.PhaseWmsSdkInit);
-                log?.Invoke("WMS SDK: creating the desktop app SDK initializer…");
+                if (Diag.Verbose) log?.Invoke("WMS SDK: creating the desktop app SDK initializer…");
                 // The Create() / InitializeSdkRuntime() / EnsureServiceAvailable()
                 // sequence is what the official sample uses. It loads the WMS
                 // SDK runtime DLLs (separately installed by the user) and
@@ -133,7 +133,7 @@ internal static class WmsRuntime
                     log?.Invoke(_failureReason);
                     return false;
                 }
-                log?.Invoke("WMS SDK: initializer created; initialising the SDK runtime…");
+                if (Diag.Verbose) log?.Invoke("WMS SDK: initializer created; initialising the SDK runtime…");
                 if (!initializer.InitializeSdkRuntime())
                 {
                     _failureReason = "InitializeSdkRuntime returned false (runtime version mismatch?).";
@@ -141,7 +141,7 @@ internal static class WmsRuntime
                     try { initializer.Dispose(); } catch { }
                     return false;
                 }
-                log?.Invoke("WMS SDK: runtime initialised; checking the MIDI service…");
+                if (Diag.Verbose) log?.Invoke("WMS SDK: runtime initialised; checking the MIDI service…");
                 if (!initializer.EnsureServiceAvailable())
                 {
                     _failureReason = "EnsureServiceAvailable returned false (Windows MIDI Services service not running).";
